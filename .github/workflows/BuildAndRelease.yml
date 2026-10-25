@@ -1,0 +1,111 @@
+name: Build and create a release
+
+# Two ways in:
+#
+#  1. Push a tag:
+#         git tag v0.1-alpha && git push origin v0.1-alpha
+#
+#  2. Run this workflow manually with a "tag" input:
+#         gh workflow run BuildAndRelease.yml -f tag=v0.1-alpha
+#     The release step creates the tag itself (tag_name + target_commitish), so a
+#     release can be cut without a tag push. Dispatching with an EMPTY tag builds
+#     everything and releases nothing: the dry run to use before tagging.
+#
+# Every release, a suffixed tag such as v0.1-alpha included, is published as a
+# regular release and becomes the latest one: GitHub never marks a pre-release as
+# latest, so the repository page would not show it.
+#
+# The job body is deliberately thin: the files come from ./buildAll.sh and the
+# release text from tools/release_notes.sh, so both can be tested locally. The
+# release holds no Blizzard game data.
+on:
+    push:
+        tags:
+          - "v*.*-alpha"
+          - "v*.*.*"
+          - "v*.*"
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Tag to create and release (e.g. v0.1-alpha). Leave empty to build without releasing.'
+                required: false
+                type: string
+
+# Allow the release step to write back to the repository
+permissions:
+    contents: write
+
+jobs:
+    build-release:
+        runs-on: self-hosted
+        name: Build the firmware and the SD-card assets, and create a release
+        steps:
+
+          # No submodules: DevilutionX, its libraries, the pico_shared drivers,
+          # tusb_xinput and TLSF are vendored in-tree.
+          - name: Check out this repository
+            uses: actions/checkout@v6
+
+          - name: Resolve the tag to build and release
+            id: ver
+            run: |
+                 if [ "${{ github.event_name }}" = "push" ]; then
+                      tag="${GITHUB_REF#refs/tags/}"
+                 else
+                      tag="${{ inputs.tag }}"
+                 fi
+                 echo "Tag is '${tag}'"
+                 if [ -z "$tag" ]; then
+                      echo "No tag: building only, no release will be created."
+                 fi
+                 echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          # The Pico SDK and Pico-PIO-USB are provisioned on the runner; tinyusb comes
+          # from the SDK.
+          - name: Build every release file
+            run: |
+                 chmod +x buildAll.sh *-build.sh tools/*.sh tools/*.py
+                 export PICO_SDK_PATH=/datalocal/pico/pico-sdk
+                 export PICO_PIO_USB_PATH=/datalocal/Pico-PIO-USB
+                 export DX_RELEASE_VERSION="${{ steps.ver.outputs.tag }}"
+                 ./buildAll.sh
+
+          - name: List release files
+            run: ls -l releases/
+
+          # The PicoNES PCB Gerber files come from pico_shared, which is not a
+          # submodule of this repository. Only the designs this port can use are
+          # attached: v2.6 (NES controller ports) and v2.8 (SNES controller ports).
+          - name: Fetch the PicoNES PCB Gerber files
+            if: steps.ver.outputs.tag != ''
+            run: |
+                 rm -rf pcb && mkdir pcb
+                 for f in pico_nesPCB_v2.6.zip pico_nesPCB_v2.8_SNES_PORTS.zip; do
+                      curl -fsSL -o "pcb/$f" "https://raw.githubusercontent.com/PicoPlus-devel/pico_shared/main/PCB/$f"
+                 done
+                 ls -l pcb/
+
+          - name: Extract the release notes from CHANGELOG.md
+            if: steps.ver.outputs.tag != ''
+            run: |
+                 ./tools/release_notes.sh "${{ steps.ver.outputs.tag }}" > release-notes.md
+                 echo "----- release-notes.md -----"
+                 cat release-notes.md
+
+          # tag_name + target_commitish let the action CREATE the tag, so a
+          # workflow_dispatch run can publish a release without a tag push. (A tag
+          # pushed by a workflow using the default GITHUB_TOKEN would not trigger
+          # this workflow, so pushing one from CI is not an option.)
+          - name: Create release
+            uses: softprops/action-gh-release@v3
+            if: steps.ver.outputs.tag != ''
+            with:
+              tag_name: ${{ steps.ver.outputs.tag }}
+              target_commitish: ${{ github.sha }}
+              name: ${{ steps.ver.outputs.tag }}
+              body_path: release-notes.md
+              fail_on_unmatched_files: true
+              files: |
+                releases/*.uf2
+                releases/*.zip
+                pcb/*.zip

@@ -1,0 +1,10 @@
+# Build output
+hosttest/build/
+hosttest/build-nosan/
+hosttest/dx_host
+hosttest/dx_host_nosan
+*.ppm
+__pycache__/
+build/
+build_*/
+releases/
