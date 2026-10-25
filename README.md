@@ -59,15 +59,20 @@ Verified in the test program on a PC (`hosttest/`), with the board's 8 MB of PSR
   (`WarriorLevel1to2`).
 - Music and sound effects play.
 - Assets are cached in flash and used from there, also after a restart.
+- With the full game's data, a new hero can enter each of the 16 dungeon levels, both with
+  an empty flash cache and with the cache filled by the levels visited before.
 
 Not yet verified on a board:
 
 - the Fruit Jam, and its headphone jack;
 - USB keyboards, mice and gamepads, SNES controllers and the Wii extension port;
-- the second level of the cathedral.
+- the second level of the cathedral;
+- the full game (`DIABDAT.MPQ`).
 
-The full game (`DIABDAT.MPQ`) has not been tested at all. Network play and Hellfire are
-not supported.
+With the full game, the first visit to a level takes longer than later ones, because its
+graphics and sounds are written to flash. Its sound effects are stored in flash as 4-bit
+ADPCM, at half the size of the original 8-bit sound; a few of them sound slightly harsher
+than on a PC. Network play and Hellfire are not supported.
 
 ## Boards
 
@@ -154,9 +159,11 @@ DevilutionX 1.5.5 on a PC.
 ## When something goes wrong
 
 Errors that stop the game are shown on the screen. The board also writes a log to its
-UART (GPIO 0 on the Pico Plus 2, GPIO 44 on the Fruit Jam, 115200 baud), including a
-status line every 5 seconds with the frame rate, the memory use and where the time of a
-frame is spent.
+UART (GPIO 0 on the Pico Plus 2, GPIO 44 on the Fruit Jam, 115200 baud) with the start-up,
+the loading of the game data and any errors. A firmware built with the option
+`DX_PERF_LOG` adds a status line every 5 seconds with the frame rate, the memory use and
+where the time of a frame is spent (see [TECHNICAL.md](TECHNICAL.md)); writing it
+interrupts the sound briefly.
 
 **Pico Plus 2: the board starts in BOOTSEL mode after pressing its reset button.** On this
 board, a reset that happens while the PSRAM is being read can leave the PSRAM connected to

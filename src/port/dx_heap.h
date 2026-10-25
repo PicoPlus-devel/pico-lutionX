@@ -44,6 +44,11 @@ void *dx_malloc(size_t bytes);
 void *dx_calloc(size_t count, size_t size);
 void *dx_realloc(void *p, size_t bytes);
 void dx_free(void *p);
+// A heap block that owns other heap blocks and flash asset cache entries (from
+// dx_fcache_find, dx_fcache_store or dx_fcache_write_end) and frees or releases them when it
+// is freed: an engine buffer that is freed in one piece can own several buffers (monster sets
+// loaded one animation at a time).
+void *dx_heap_refblock(const void *const *refs, unsigned count);
 void *dx_memalign(size_t align, size_t bytes);
 int dx_posix_memalign(void **result, size_t align, size_t bytes);
 

@@ -153,9 +153,17 @@ static int page_available(unsigned p, int blank_only)
 	return !blank_only && !sector_has_live(p);
 }
 
-// Smallest run of at least n available pages; returns the first page or -1.
+// Placement keeps large free runs together. Small entries go to the highest run of
+// available pages that fits, at its end; larger ones to the smallest run that fits, at its
+// start. Otherwise the small entries that stay in use for a whole game (the sound effects)
+// end up scattered over the region, and a large entry (a monster animation of up to 1 MB)
+// finds no window free of them although most of the region could be evicted.
+#define FC_SMALL_PAGES (128 * 1024 / DX_FC_PAGE)
+
+// Returns the first page of the place for n pages, or -1.
 static int best_fit(unsigned n, int blank_only)
 {
+	const int small = n <= FC_SMALL_PAGES;
 	unsigned run_start = 0, run = 0, best_len = 0xffffffff;
 	int best = -1;
 
@@ -166,9 +174,13 @@ static int best_fit(unsigned n, int blank_only)
 			run++;
 			continue;
 		}
-		if (run >= n && run < best_len) {
-			best = (int)run_start;
-			best_len = run;
+		if (run >= n) {
+			if (small) {
+				best = (int)(run_start + run - n); // the last fitting run is the highest
+			} else if (run < best_len) {
+				best = (int)run_start;
+				best_len = run;
+			}
 		}
 		run = 0;
 	}
@@ -729,6 +741,85 @@ void dx_fcache_commit(void)
 
 	active_slot = slot;
 	dirty = 0;
+}
+
+void dx_fcache_print_usage(void)
+{
+	struct {
+		char kind[12];
+		unsigned bytes, held, count;
+	} kinds[16];
+	int numkinds = 0;
+
+	if (!flash || !loaded)
+		return;
+	for (int i = 0; i < numentries; i++) {
+		if (!dir[i].offset)
+			continue;
+		char kind[12];
+		size_t n = strcspn(dir[i].name, ":");
+		if (n >= sizeof(kind))
+			n = sizeof(kind) - 1;
+		memcpy(kind, dir[i].name, n);
+		kind[n] = '\0';
+		int k = 0;
+		while (k < numkinds && strcmp(kinds[k].kind, kind) != 0)
+			k++;
+		if (k == numkinds) {
+			if (numkinds == (int)(sizeof(kinds) / sizeof(kinds[0])))
+				k = numkinds - 1; // lump the rest together
+			else {
+				memcpy(kinds[k].kind, kind, sizeof(kind));
+				kinds[k].bytes = kinds[k].held = kinds[k].count = 0;
+				numkinds++;
+			}
+		}
+		kinds[k].bytes += dir[i].length;
+		kinds[k].count++;
+		if (refs[i])
+			kinds[k].held += dir[i].length;
+	}
+	printf("dx_fcache usage (KB, KB in use, entries):");
+	for (int k = 0; k < numkinds; k++)
+		printf(" %s %u/%u/%u", kinds[k].kind, kinds[k].bytes / 1024, kinds[k].held / 1024, kinds[k].count);
+	printf("\n");
+}
+
+void dx_fcache_print_map(void)
+{
+	enum { CellPages = 64 * 1024 / DX_FC_PAGE };
+	char line[80];
+	int n = 0;
+
+	if (!flash || !loaded)
+		return;
+	printf("dx_fcache map (64 KB: # in use, + evictable, . free):\n");
+	for (unsigned c = 0; c * CellPages < data_pages; c++) {
+		char mark = '.';
+		for (int i = 0; i < numentries; i++) {
+			if (!dir[i].offset)
+				continue;
+			const unsigned first = page_of(dir[i].offset);
+			const unsigned last = first + (dir[i].length + DX_FC_PAGE - 1) / DX_FC_PAGE;
+			if (last <= c * CellPages || first >= (c + 1) * CellPages)
+				continue;
+			if (refs[i]) {
+				mark = '#';
+				break;
+			}
+			mark = '+';
+		}
+		line[n++] = mark;
+		if (n == 64) {
+			line[n] = '\0';
+			printf("  %s\n", line);
+			n = 0;
+		}
+	}
+	if (n) {
+		line[n] = '\0';
+		printf("  %s\n", line);
+	}
 }
 
 void dx_fcache_get_stats(dx_fcache_stats_t *st)

@@ -5,8 +5,8 @@
 
 #include <cstring>
 
+#include "adpcm_wav.h"
 #include "dx_sram.h"
-#include "ima_adpcm.h"
 
 #define DRMP3_DATA_CHUNK_SIZE 16384 // the minimum (default 64 KB per decoder)
 // drmp3dec_decode_frame's 17 KB of scratch space would not fit on core0's 16 KB stack: it
@@ -134,80 +134,24 @@ auto DecoderDrmp3::doDecoding(float buf[], int len, bool &callAgain) -> int
 
 auto DecodeMp3ToAdpcmWav(const uint8_t *mp3, size_t size, WavSink &sink) -> bool
 {
-	using namespace ImaAdpcm;
-
 	auto dec = std::make_unique<drmp3>(); // about 16 KB
 	if (!drmp3_init_memory(dec.get(), mp3, size, nullptr))
 		return false;
 	const drmp3_uint64 frames = drmp3_get_pcm_frame_count(dec.get());
 	const unsigned channels = dec->channels;
-	const unsigned rate = dec->sampleRate;
-	const unsigned blockAlign = BlockBytesPerChannel * channels;
-	const auto blocks = static_cast<uint32_t>((frames + SamplesPerBlock - 1) / SamplesPerBlock);
-	const uint32_t dataBytes = blocks * blockAlign;
-	constexpr size_t HeaderBytes = 60; // RIFF, fmt (20 bytes), fact, data
-	if (frames == 0 || frames > UINT32_MAX / 2 || channels == 0 || channels > 2
-	    || !drmp3_seek_to_pcm_frame(dec.get(), 0) || !sink.begin(HeaderBytes + dataBytes)) {
-		drmp3_uninit(dec.get());
-		return false;
-	}
-
-	uint8_t header[HeaderBytes];
-	auto le32 = [&](size_t at, uint32_t v) {
-		for (int i = 0; i < 4; i++)
-			header[at + i] = static_cast<uint8_t>(v >> (8 * i));
-	};
-	auto le16 = [&](size_t at, unsigned v) {
-		header[at] = static_cast<uint8_t>(v);
-		header[at + 1] = static_cast<uint8_t>(v >> 8);
-	};
-	memcpy(&header[0], "RIFF", 4);
-	le32(4, static_cast<uint32_t>(HeaderBytes - 8 + dataBytes));
-	memcpy(&header[8], "WAVEfmt ", 8);
-	le32(16, 20);
-	le16(20, 0x11); // IMA ADPCM
-	le16(22, channels);
-	le32(24, rate);
-	le32(28, static_cast<uint32_t>(static_cast<uint64_t>(rate) * blockAlign / SamplesPerBlock));
-	le16(32, blockAlign);
-	le16(34, 4);
-	le16(36, 2); // cbSize
-	le16(38, SamplesPerBlock);
-	memcpy(&header[40], "fact", 4);
-	le32(44, 4);
-	le32(48, static_cast<uint32_t>(frames));
-	memcpy(&header[52], "data", 4);
-	le32(56, dataBytes);
-	sink.write(header, sizeof(header));
-
-	// decoded as float (dr_mp3's s16 path keeps a 16 KB buffer on the stack), one block at
-	// a time; the last block is padded with silence (the fact chunk holds the real length)
-	auto f32 = std::make_unique<float[]>(SamplesPerBlock * 2);
-	auto pcm = std::make_unique<int16_t[]>(SamplesPerBlock * 2);
-	auto block = std::make_unique<uint8_t[]>(BlockBytesPerChannel * 2);
-	Channel state[2];
-	for (uint32_t b = 0; b < blocks; b++) {
-		const drmp3_uint64 got = drmp3_read_pcm_frames_f32(dec.get(), SamplesPerBlock, f32.get());
-		const unsigned decoded = static_cast<unsigned>(got) * channels;
-		for (unsigned i = 0; i < SamplesPerBlock * channels; i++) {
-			const float v = i < decoded ? f32[i] * 32768.0F : 0.0F;
-			pcm[i] = static_cast<int16_t>(v >= 32767.0F ? 32767 : v <= -32768.0F ? -32768 : static_cast<int>(v));
-		}
-
-		memset(block.get(), 0, blockAlign);
-		for (unsigned c = 0; c < channels; c++) {
-			state[c].predictor = pcm[c];
-			block[4 * c] = static_cast<uint8_t>(pcm[c]);
-			block[4 * c + 1] = static_cast<uint8_t>(static_cast<uint16_t>(pcm[c]) >> 8);
-			block[4 * c + 2] = static_cast<uint8_t>(state[c].index);
-		}
-		for (unsigned k = 1; k < SamplesPerBlock; k++)
-			for (unsigned c = 0; c < channels; c++)
-				block[NibbleByte(k, c, channels)] |= static_cast<uint8_t>(Encode(state[c], pcm[k * channels + c]) << NibbleShift(k));
-		sink.write(block.get(), blockAlign);
-	}
+	// decoded as float (dr_mp3's s16 path keeps a 16 KB buffer on the stack) and converted
+	auto f32 = std::make_unique<float[]>(ImaAdpcm::SamplesPerBlock * 2);
+	const bool ok = channels >= 1 && channels <= 2 && drmp3_seek_to_pcm_frame(dec.get(), 0)
+	    && WriteAdpcmWav(channels, dec->sampleRate, frames, sink, [&](int16_t *pcm, unsigned max) {
+		       const auto got = static_cast<unsigned>(drmp3_read_pcm_frames_f32(dec.get(), max, f32.get()));
+		       for (unsigned i = 0; i < got * channels; i++) {
+			       const float v = f32[i] * 32768.0F;
+			       pcm[i] = static_cast<int16_t>(v >= 32767.0F ? 32767 : v <= -32768.0F ? -32768 : static_cast<int>(v));
+		       }
+		       return got;
+	       });
 	drmp3_uninit(dec.get());
-	return true;
+	return ok;
 }
 
 } // namespace Aulib

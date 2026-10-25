@@ -3,6 +3,7 @@
 #pragma once
 
 #include <Aulib/Decoder.h>
+#include <Aulib/WavSink.h>
 
 #include <cstdint>
 #include <memory>
@@ -35,15 +36,6 @@ private:
 	int channels_ = 0;
 	int rate_ = 0;
 	mutable uint64_t frames_ = 0; // total frames, counted on first use
-};
-
-// pico-lutionX: receives a WAV file in pieces. begin gets the length of the whole file
-// first and may refuse it; write then gets exactly that many bytes.
-class WavSink {
-public:
-	virtual ~WavSink() = default;
-	virtual auto begin(size_t bytes) -> bool = 0;
-	virtual void write(const void *data, size_t bytes) = 0;
 };
 
 // pico-lutionX: decodes an MP3 file into an IMA ADPCM WAV file (4 bits per sample, about

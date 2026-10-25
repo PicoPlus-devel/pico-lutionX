@@ -265,6 +265,7 @@ void __attribute__((noreturn)) _exit(int status)
 
 void dx_heap_out_of_memory(size_t bytes)
 {
+	dx_fcache_print_usage();
 	if (bytes == 0)
 		dx_fatal("Memory was used before the PSRAM heap was ready.\n"
 		         "PSRAM: %ld KB on GPIO %d (8 MB are needed).",
@@ -276,7 +277,9 @@ void dx_heap_out_of_memory(size_t bytes)
 /*
 ==============================================================================
 
-Status line on the UART every 5 seconds (called from sdlb_present).
+Status line on the UART every 5 seconds (called from sdlb_present), only with
+DX_PERF_LOG=1: printing waits for the UART, and the report held core0 long enough to make
+the sound stutter.
 
 ==============================================================================
 */
@@ -298,6 +301,7 @@ static void __attribute__((noinline)) paint_stack(void)
 	__asm volatile("msr msplim, %0" : : "r"(__StackLimit));
 }
 
+#if DX_PERF_LOG
 static unsigned stack_used(void)
 {
 	const uint32_t *p = __StackLimit;
@@ -342,6 +346,11 @@ void dx_report_status(void)
 	frames = 0;
 	last_ms = now;
 }
+#else
+void dx_report_status(void)
+{
+}
+#endif
 
 /*
 ==============================================================================
@@ -389,7 +398,9 @@ int main(void)
 	dx_display_set_idle(dx_audio_idle); // mix ahead instead of waiting for the vertical blank
 	dx_nespad_init(); // before the USB timer, which polls the controller ports
 	dx_usb_init();
+#if DX_PERF_LOG
 	dx_prof_start();
+#endif
 
 	return devilution_main((int)(sizeof(argv) / sizeof(argv[0])) - 1, argv);
 }

@@ -47,10 +47,16 @@ message(STATUS "pico-lutionX clock: ${DX_CPU_KHZ} kHz at ${DX_VREG}")
 # DX_COPY_ON_CORE1: copy each frame on core1 instead of core0 (dx_display.c; no gain measured)
 option(DX_COPY_ON_CORE1 "Copy the frame to the front buffer on core1" OFF)
 
+# DX_PERF_LOG: a status line with the frame rate, memory and the time per frame of each part
+# of the game on the UART every 5 seconds (dx_boot.c, dx_prof.c). Off by default: printing
+# waits for the UART, and the report made the sound stutter.
+option(DX_PERF_LOG "Status and performance report on the UART every 5 seconds" OFF)
+
 target_compile_definitions(pico_lutionx PRIVATE
     DX_CPU_KHZ=${DX_CPU_KHZ}
     DX_VREG=${DX_VREG}
     DX_COPY_ON_CORE1=$<BOOL:${DX_COPY_ON_CORE1}>
+    DX_PERF_LOG=$<BOOL:${DX_PERF_LOG}>
     PICO_STACK_SIZE=16384
     PICO_CORE1_STACK_SIZE=0
     DX_FCACHE_BASE=${DX_FCACHE_BASE}

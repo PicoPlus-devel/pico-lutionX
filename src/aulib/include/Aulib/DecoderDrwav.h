@@ -4,6 +4,7 @@
 #pragma once
 
 #include <Aulib/Decoder.h>
+#include <Aulib/WavSink.h>
 
 #include <cstdint>
 
@@ -40,5 +41,11 @@ private:
 	int predictor_[2] = {};
 	int stepIndex_[2] = {};
 };
+
+// pico-lutionX: converts a PCM WAV file (8 or 16-bit, mono or stereo) into an IMA ADPCM WAV
+// file, so the full game's sound effects (8-bit PCM) take half the flash. Returns false if the
+// data is not such a file or the sink refused it; after a successful begin the whole file is
+// always written.
+auto EncodeWavToAdpcmWav(const uint8_t *wav, size_t size, WavSink &sink) -> bool;
 
 } // namespace Aulib

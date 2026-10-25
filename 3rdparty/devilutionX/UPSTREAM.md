@@ -33,8 +33,8 @@ Port changes:
   instead of `player = {}`, which put a 16 KiB temporary on the stack.
 - `controls/plrctrls.cpp` (`FindMeleeTarget`): the 12.5 KiB `visited` map is static instead
   of a local array.
-- `utils/cl2_to_clx.hpp`, `monster.cpp`: reserve the conversion buffers up front, avoiding
-  vector growth peaks during level loading.
+- `utils/cl2_to_clx.hpp`: reserve the conversion buffers up front, avoiding vector growth
+  peaks during level loading.
 
 - `engine/render/blit_impl.hpp`: the per-pixel colour map loops (lighting, blended
   transparency, colour translations) call the word-at-a-time versions in
@@ -59,15 +59,20 @@ Flash asset cache (`src/port/dx_fcache.hpp`):
   (`LoadMultipleCl2Sheet`), `engine/load_clx.cpp`, `engine/load_pcx.cpp`: look the
   converted sprites up in the cache first; store them after loading (CL2 straight from
   the conversion buffer).
-- `monster.cpp` (`InitMonsterGFX`): the converted buffer gets a header with the animation
-  offsets and is cached after its colour translation, but only when PSRAM runs short.
+- `monster.cpp` (`InitMonsterGFX`, `LoadMonsterAnims`): a monster set is loaded as one
+  buffer per animation, each converted and colour translated by itself, in PSRAM or (when
+  PSRAM runs short) in the cache as `<key>:a<i>`; the monster type owns them through a
+  reference block (`dx_heap_refblock`). Upstream's one-buffer build peaks at about twice the
+  set, which the full game's deep levels cannot provide. The upstream code is kept for other
+  builds.
 - `player.cpp` (`LoadPlrGFX`): sprites with a class colour translation are cached with the
   translation applied, under their own key.
 - `diablo.cpp`: dungeon tiles (`LoadLvlGFX`) go through `DxLoadFileCached`, which copies
   the file from the MPQ straight into flash; `LoadGameLevel` starts a new cache sequence
   and commits the directory at its end.
 - `engine/sound.cpp` (`LoadAudioFile`): sound effects are kept in the cache and played
-  from there; MP3 effects are decoded into IMA ADPCM WAV files on the way in.
+  from there, converted into IMA ADPCM WAV files on the way in (MP3 in `spawn.mpq`, 8-bit
+  PCM WAV in `DIABDAT.MPQ`).
 
 Upstream bug:
 
@@ -89,6 +94,6 @@ Measurement hooks (heap accounting, see `src/port/dx_heap.h`):
   `engine/sound.cpp` (`LoadAudioFile`).
 - `DxCacheableScope` around the final sprite buffers (the candidates for the flash asset
   cache): `utils/cel_to_clx.cpp`, `utils/cl2_to_clx.hpp`, `utils/pcx_to_clx.cpp`,
-  `utils/surface_to_clx.cpp`, `engine/load_clx.cpp`, `monster.cpp`, and all of `LoadLvlGFX`.
+  `utils/surface_to_clx.cpp`, `engine/load_clx.cpp`, and all of `LoadLvlGFX`.
 - `dx_heap_mark()` reports in `diablo.cpp`: before and after the main menu is freed, and at
   the end of `LoadGameLevel`.

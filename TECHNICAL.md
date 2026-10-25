@@ -80,12 +80,17 @@ used in place through the XIP window:
 - **Sprites:** CEL, CL2 and CLX sprites after their conversion (`engine/load_*.cpp`).
 - **Dungeon tiles:** these files are copied from the MPQ straight into flash, without a
   copy in PSRAM.
-- **Sound effects:** these are copied the same way. MP3 effects (`spawn.mpq`) are
-  decoded once on the way in and stored as IMA ADPCM WAV files (4 bits per sample, about
-  2.6 MB for all of them, against 10 MB as 16-bit PCM). Decoding several MP3 streams while
-  they play cost up to 65 ms per frame in fights.
-- **Monster sprites:** cached only when PSRAM runs short, judged by the largest free
-  block, because they change with every level.
+- **Sound effects:** stored as IMA ADPCM WAV files (4 bits per sample), converted once on
+  the way in:
+  - MP3 (`spawn.mpq`): 2.6 MB for all effects, against 10 MB as 16-bit PCM; decoding
+    several MP3 streams while they play cost up to 65 ms per frame in fights.
+  - 8-bit PCM WAV (`DIABDAT.MPQ`): 2.3 MB instead of 4.6 MB for a level's effects, which
+    the deep levels need (see "The full game").
+- **Monster sprites:** one buffer per animation (`LoadMonsterAnims` in `monster.cpp`),
+  owned through a reference block (`dx_heap_refblock`) that frees or releases them with the
+  monster type. An animation stays in PSRAM, which draws faster and writes no flash,
+  unless that would leave less than 2 MB contiguous; then it goes into the cache, where
+  later visits find it.
 
 Details of the cache:
 
@@ -97,8 +102,15 @@ Details of the cache:
 - **Writes in place:** the engine changes some sprites after loading (colour
   translations). Those are stored after the change (monsters), stored under a separate key
   (player class colours), or cloned first (the health bar).
+- **Placement:** entries up to 128 KB go to the highest free run that fits, larger ones
+  to the smallest run that fits, at its start. Otherwise the small entries that stay in use
+  for a whole game (sound effects) end up scattered over the region, and a large one finds
+  no window free of them although most of the region could be evicted.
 - **Persistence:** the cache survives restarts. A different game data file (`spawn.mpq`
   or `DIABDAT.MPQ`, identified by its size) discards it.
+- **Diagnostics:** `dx_fcache_print_usage` lists the contents by kind (in use and total)
+  and `dx_fcache_print_map` draws the region, 64 KB per character. Both are printed when
+  the PSRAM heap runs out.
 
 Flash writes run from SRAM with every interrupt masked except the USB frame interrupt
 (`src/pico/dx_flash.c`, `dx_usb_frame.c`). Core1 keeps scanning out from SRAM, and its
@@ -153,7 +165,11 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   - **Sound effects:** decoded once into IMA ADPCM in the flash asset cache
     (`DecodeMp3ToAdpcmWav`, `src/aulib/ima_adpcm.h`) and played from there by the WAV
     decoder, which keeps no buffer per sound: all loaded effects have a decoder at once.
-  - **The full game:** uses PCM WAV, played as it is.
+  - **The full game:** its effects are 8-bit PCM WAV (210 of 212, 22050 Hz mono), converted
+    to IMA ADPCM in the cache the same way (`EncodeWavToAdpcmWav`). Measured over all 212
+    against the originals: signal to noise median 24 dB, worst 10 dB; bright, metallic
+    sounds (coins, picking up items) fare worst (about 15 dB), low and smooth ones best
+    (over 40 dB). Its music is PCM WAV and played as it is.
 
 ## Input
 
@@ -168,7 +184,11 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 
 ## The status line
 
-Every 5 seconds the firmware writes two lines to the UART:
+With the CMake option `DX_PERF_LOG` (for example
+`CMAKE_ARGS=-DDX_PERF_LOG=ON ./adafruitdvisd-build.sh`), the firmware writes a report to the
+UART every 5 seconds. It is off by default: `printf` waits for the UART, and at 115200 baud
+the report of about 1 KB holds core0 for some 90 ms, longer than the audio mix runs ahead,
+so the sound stutters while it is written. The report:
 
 ```
 status: 12.0 fps, heap 844/7522 KB (peak 1009), SRAM 40 KB free, stack 6120/16384 B core0 900/4096 B core1, frame copy 5.8 ms (max 7.1), cache 294 assets 7571 KB, 290 hits 4 stored, 40 KB written
@@ -230,7 +250,15 @@ DX_FCACHE=1 hosttest/dx_host --data-dir /tmp/dx/data --save-dir /tmp/dx/save \
 
 # memory per level: total, with all sprites cached, and with the real cache
 hosttest/sweep.sh /tmp/dx/data
+
+# the full game: each level on an empty cache, then all of them in order on one cache
+NOSAN=1 hosttest/build.sh
+hosttest/levels.sh /path/to/diabdat-data cold
+hosttest/levels.sh /path/to/diabdat-data warm
 ```
+
+Writes into the screen surface without a wait for the frame copy fault (see "Video"),
+and flash writes outside the cache region abort.
 
 Other tools:
 
@@ -267,6 +295,32 @@ power cycle does.
   - *Use:* restart with Quit Game (game menu) or Exit Diablo (main menu). Both end in
     `_exit(0)` (`src/pico/dx_boot.c`), which resets through the watchdog while the PSRAM
     is idle.
+
+## The full game
+
+`DIABDAT.MPQ` was tested in the test program, with the board's PSRAM and flash cache, by
+loading every level (`hosttest/levels.sh`). It has not run on a board yet. Three changes
+were needed beyond the shareware data:
+
+- **Monster sets:** upstream builds a set in one buffer, which takes about twice the set
+  in PSRAM at its peak. The full game's sets reach 1.8 MB (Diablo 3.4 MB), so levels 10, 12
+  and 16 ran out of memory. Sets are now loaded one animation at a time (see "The flash
+  asset cache"), so the peak is about twice the largest animation (841 KB).
+- **Sound effects:** stored as IMA ADPCM, half their size as 8-bit PCM (see "Sound").
+  Before that, a level's effects took 4.6 MB of the cache and were in use all the time.
+- **Cache placement:** small entries are kept apart from large ones, so monster
+  animations of up to 1 MB find room on a cache that is mostly in use.
+
+Results, with a new hero taken to each level by `+goto`:
+
+| | Levels 1–15 | Level 16 |
+|---|---|---|
+| PSRAM, largest free block after loading | 2.0–4.2 MB | 1.0 MB |
+| Flash cache in use after loading | 11.0–12.9 of 13.0 MB | 12.7 MB |
+| Flash written on a first visit (warm cache) | 0.1–6.5 MB | about 4 MB |
+
+Level 16 holds 8.5 MB of monster graphics, about half in PSRAM and half in flash. A few
+animations find no room in the cache there and are kept in PSRAM instead.
 
 ## Open items
 
@@ -309,9 +363,12 @@ power cycle does.
     - the engine's Zoom option (half-resolution dungeon view);
     - running more than one game tick per frame;
     - 504 MHz.
-- **The full game:** `DIABDAT.MPQ` is untested. Its level types 5–16 and larger monster
-  sets have only been estimated (docs/FEASIBILITY.md). Its sound effects are PCM WAV,
-  which takes more flash than the shareware MP3s.
+- **The full game:** all 16 levels load in the test program with the board's memory
+  (`hosttest/levels.sh`, cold and warm), but it has not run on a board. Level 16 is the
+  tightest: 8.5 MB of monster graphics (Diablo alone 3.4 MB), half in PSRAM, half in
+  flash, leaving a 1 MB PSRAM block and an almost full cache. A first visit to a deep
+  level writes 3–6 MB to flash. Whether the ADPCM sound effects are acceptable needs
+  listening on the board.
 - **Licences:** the drivers come from pico_shared (GPL-3.0) and libmpq is
   GPL-2.0-or-later. Neither may be distributed in one firmware with DevilutionX's licence
   (docs/FEASIBILITY.md, section 7). This must be settled before a release.

@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "adpcm_wav.h"
 #include "ima_adpcm.h"
 
 namespace Aulib {
@@ -415,6 +416,46 @@ auto DecoderDrwav::doDecoding(float buf[], int len, bool &callAgain) -> int
 		position_ += static_cast<uint32_t>(samples * bytesPerSample_);
 	}
 	return done;
+}
+
+auto EncodeWavToAdpcmWav(const uint8_t *wav, size_t size, WavSink &sink) -> bool
+{
+	if (size < 12 || memcmp(wav, "RIFF", 4) != 0 || memcmp(wav + 8, "WAVE", 4) != 0)
+		return false;
+	unsigned channels = 0, rate = 0, bits = 0;
+	const uint8_t *data = nullptr;
+	size_t dataSize = 0;
+	for (size_t pos = 12; pos + 8 <= size;) {
+		const uint32_t chunk = ReadLE32(wav + pos + 4);
+		const uint8_t *body = wav + pos + 8;
+		const size_t avail = size - pos - 8;
+		if (memcmp(wav + pos, "fmt ", 4) == 0 && chunk >= 16 && avail >= 16) {
+			const uint16_t format = ReadLE16(body);
+			if (format != 1 && format != 0xfffe)
+				return false;
+			channels = ReadLE16(body + 2);
+			rate = ReadLE32(body + 4);
+			bits = ReadLE16(body + 14);
+		} else if (memcmp(wav + pos, "data", 4) == 0) {
+			data = body;
+			dataSize = chunk < avail ? chunk : avail;
+			break;
+		}
+		pos += 8 + static_cast<size_t>(chunk) + (chunk & 1);
+	}
+	if (data == nullptr || (bits != 8 && bits != 16) || channels < 1 || channels > 2)
+		return false;
+	const unsigned frameBytes = channels * bits / 8;
+	const size_t frames = dataSize / frameBytes;
+	size_t done = 0;
+	return WriteAdpcmWav(channels, rate, frames, sink, [&](int16_t *pcm, unsigned max) {
+		const auto n = static_cast<unsigned>(std::min<size_t>(max, frames - done));
+		const uint8_t *p = data + done * frameBytes;
+		for (unsigned i = 0; i < n * channels; i++)
+			pcm[i] = bits == 8 ? static_cast<int16_t>((p[i] - 128) * 256) : static_cast<int16_t>(ReadLE16(p + 2 * i));
+		done += n;
+		return n;
+	});
 }
 
 // Decodes from position_ (a frame number). The block that holds it is read again on every

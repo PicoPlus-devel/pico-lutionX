@@ -116,32 +116,39 @@ void dx_prof_start(void)
 	timer_hw->alarm[SAMPLE_ALARM] = sample_next;
 }
 
-// Prints the busiest code addresses since the last report, and clears the counts.
+// Prints the busiest code addresses since the last report, and clears the counts. One
+// pass over the table, which is in PSRAM (a pass per address held core0 for some 25 ms).
 static void report_pcs(void)
 {
 	const unsigned irq = hardware_alarm_get_irq_num(SAMPLE_ALARM);
 	const uint32_t samples = pc_samples;
+	const uint32_t lost = pc_lost;
+	pc_slot_t top[PC_TOP]; // busiest first
+	int found = 0;
 
 	if (samples == 0)
 		return;
 	irq_set_enabled(irq, false);
-	printf("hot code (%lu samples, %lu lost):", (unsigned long)samples, (unsigned long)pc_lost);
-	for (int n = 0; n < PC_TOP; n++) {
-		pc_slot_t *best = NULL;
-		for (int i = 0; i < PC_SLOTS; i++)
-			if (pc_table[i].count != 0 && (best == NULL || pc_table[i].count > best->count))
-				best = &pc_table[i];
-		if (best == NULL)
-			break;
-		printf("%s%08lx:%lu", n % 8 ? " " : "\n ", (unsigned long)(best->key << 4), (unsigned long)best->count);
-		best->count = 0; // taken; the table is cleared below
-	}
-	printf("\n");
-	for (int i = 0; i < PC_SLOTS; i++)
+	for (int i = 0; i < PC_SLOTS; i++) {
+		const pc_slot_t s = pc_table[i];
+		if (s.count == 0)
+			continue;
 		pc_table[i].count = 0;
+		if (found == PC_TOP && s.count <= top[PC_TOP - 1].count)
+			continue;
+		int n = found < PC_TOP ? found++ : PC_TOP - 1;
+		for (; n > 0 && top[n - 1].count < s.count; n--)
+			top[n] = top[n - 1];
+		top[n] = s;
+	}
 	pc_samples = 0;
 	pc_lost = 0;
 	irq_set_enabled(irq, true);
+
+	printf("hot code (%lu samples, %lu lost):", (unsigned long)samples, (unsigned long)lost);
+	for (int n = 0; n < found; n++)
+		printf("%s%08lx:%lu", n % 8 ? " " : "\n ", (unsigned long)(top[n].key << 4), (unsigned long)top[n].count);
+	printf("\n");
 }
 
 /*

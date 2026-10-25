@@ -346,6 +346,7 @@ void ReportFlash()
 	                "%u KB erased, %u KB programmed (about %.1f s on the board)\n",
 	    st.entries, st.used_bytes / 1024, st.capacity / 1024, st.hits, st.misses, st.stores, st.store_failures,
 	    st.evictions, FlashErased / 1024, FlashProgrammed / 1024, FlashSeconds);
+	dx_fcache_print_usage();
 	if (const char *file = getenv("DX_FCACHE_FILE")) {
 		if (FILE *f = fopen(file, "wb")) {
 			fwrite(FlashBase, 1, FlashSize, f);

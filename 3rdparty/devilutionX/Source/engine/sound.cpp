@@ -8,6 +8,7 @@
 #include "dx_heap.h" // pico-lutionX
 #ifdef DEVILUTIONX_PICO // pico-lutionX
 #include <Aulib/DecoderDrmp3.h> // pico-lutionX
+#include <Aulib/DecoderDrwav.h> // pico-lutionX
 #endif // pico-lutionX
 
 #include <cstdint>
@@ -52,16 +53,16 @@ std::string GetMp3Path(const char *path)
 }
 
 #ifdef DEVILUTIONX_PICO
-// pico-lutionX: an MP3 sound effect decoded into an IMA ADPCM WAV file in the flash asset
-// cache, in pieces (neither the decoded file nor a large buffer is held in PSRAM). Null
-// when the cache is off or full.
-std::unique_ptr<std::uint8_t[]> CacheMp3AsWav(const char *key, const char *path, size_t *sizeOut)
+// pico-lutionX: a sound effect (MP3, or PCM WAV) converted into an IMA ADPCM WAV file in the
+// flash asset cache, in pieces (neither the converted file nor a large buffer is held in
+// PSRAM). Null when the cache is off or full, or the file is in neither format.
+std::unique_ptr<std::uint8_t[]> CacheAsAdpcmWav(const char *key, const char *path, bool isMp3, size_t *sizeOut)
 {
 	if (!DxCacheActive())
 		return nullptr;
-	size_t mp3Size;
-	std::unique_ptr<std::uint8_t[]> mp3 = LoadFileInMem<std::uint8_t>(path, &mp3Size);
-	if (mp3 == nullptr)
+	size_t fileSize;
+	std::unique_ptr<std::uint8_t[]> file = LoadFileInMem<std::uint8_t>(path, &fileSize);
+	if (file == nullptr)
 		return nullptr;
 
 	struct CacheSink final : Aulib::WavSink {
@@ -80,7 +81,7 @@ std::unique_ptr<std::uint8_t[]> CacheMp3AsWav(const char *key, const char *path,
 	};
 	auto sink = std::make_unique<CacheSink>();
 	sink->key = key;
-	if (!Aulib::DecodeMp3ToAdpcmWav(mp3.get(), mp3Size, *sink))
+	if (isMp3 ? !Aulib::DecodeMp3ToAdpcmWav(file.get(), fileSize, *sink) : !Aulib::EncodeWavToAdpcmWav(file.get(), fileSize, *sink))
 		return nullptr;
 	const void *cached = dx_fcache_write_end(&sink->writer);
 	if (cached == nullptr)
@@ -129,21 +130,20 @@ bool LoadAudioFile(const char *path, bool stream, bool errorDialog, SoundSample 
 #endif
 #ifdef DEVILUTIONX_PICO
 		// pico-lutionX: sound effects are kept in the flash asset cache and played from there,
-		// so they take no PSRAM. MP3 effects (spawn.mpq) are decoded into IMA ADPCM WAV files on
-		// the way in, because decoding several MP3 streams while they play takes more time than
-		// the board has; if that fails, the MP3 file itself is cached and decoded while it plays.
+		// so they take no PSRAM, as IMA ADPCM WAV files converted on the way in:
+		//   - MP3 (spawn.mpq): decoding several MP3 streams while they play takes more time
+		//     than the board has;
+		//   - PCM WAV (DIABDAT.MPQ, 8-bit): half the flash, which the deep levels need.
+		// If that fails, the file itself is cached and played as it is.
 		{
 			char key[DxCacheKeyMax];
 			size_t cachedSize;
-			std::unique_ptr<std::uint8_t[]> cached;
-			if (isMp3) {
-				DxCacheKey(key, "adpcm", foundPath.c_str(), 0);
-				cached = DxCacheFind(key, &cachedSize);
-				if (cached == nullptr)
-					cached = CacheMp3AsWav(key, foundPath.c_str(), &cachedSize);
-				if (cached != nullptr)
-					return result.SetChunk(ArraySharedPtr<std::uint8_t>(cached.release()), cachedSize, /*isMp3=*/false) == 0;
-			}
+			DxCacheKey(key, "adpcm", foundPath.c_str(), 0);
+			std::unique_ptr<std::uint8_t[]> cached = DxCacheFind(key, &cachedSize);
+			if (cached == nullptr)
+				cached = CacheAsAdpcmWav(key, foundPath.c_str(), isMp3, &cachedSize);
+			if (cached != nullptr)
+				return result.SetChunk(ArraySharedPtr<std::uint8_t>(cached.release()), cachedSize, /*isMp3=*/false) == 0;
 			DxCacheKey(key, "snd", foundPath.c_str(), 0);
 			cached = DxCacheFind(key, &cachedSize);
 			if (cached == nullptr) {

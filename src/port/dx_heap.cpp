@@ -49,12 +49,21 @@ constexpr size_t HeaderBytes = 8;
 
 struct Header {
 	uint8_t category;
-	uint8_t pool; // 0 = PSRAM, 1 = flash simulation
+	uint8_t pool; // PoolFlashSim: flash simulation, else PSRAM; PoolRefBlock: see dx_heap_refblock
 	uint8_t cacheable;
 	uint8_t pad;   // alignment padding in front of the header, in units of HeaderBytes
 	uint32_t size; // TLSF block size, header included
 };
 static_assert(sizeof(Header) == HeaderBytes, "header size");
+
+constexpr uint8_t PoolFlashSim = 1;
+constexpr uint8_t PoolRefBlock = 0x80;
+
+// dx_heap_refblock: heap blocks and flash asset cache references, freed or released with it
+struct RefBlock {
+	unsigned count;
+	const void *refs[1];
+};
 
 // sizes for printf: the board's C library (newlib-nano) has no %zu
 unsigned long Ul(size_t v)
@@ -186,7 +195,7 @@ void *Allocate(size_t bytes, size_t align)
 	uint8_t *user = raw + front;
 	auto *header = reinterpret_cast<Header *>(user - HeaderBytes);
 	header->category = static_cast<uint8_t>(Category);
-	header->pool = toFlash ? 1 : 0;
+	header->pool = toFlash ? PoolFlashSim : 0;
 	header->cacheable = static_cast<uint8_t>(Cacheable != 0);
 	header->pad = static_cast<uint8_t>(front / HeaderBytes);
 	header->size = static_cast<uint32_t>(tlsf_block_size(raw));
@@ -221,9 +230,14 @@ void Release(void *p)
 		return;
 	}
 	auto *header = reinterpret_cast<Header *>(static_cast<uint8_t *>(p) - HeaderBytes);
-	Pool &pool = header->pool != 0 ? FlashSim : Psram;
+	if ((header->pool & PoolRefBlock) != 0) {
+		const auto *block = static_cast<const RefBlock *>(p);
+		for (unsigned i = 0; i < block->count; i++)
+			Release(const_cast<void *>(block->refs[i]));
+	}
+	Pool &pool = (header->pool & PoolFlashSim) != 0 ? FlashSim : Psram;
 	pool.used -= header->size;
-	if (header->pool != 0)
+	if ((header->pool & PoolFlashSim) != 0)
 		FlashLive[header->category] -= header->size;
 	else
 		Live[header->category][header->cacheable] -= header->size;
@@ -350,6 +364,17 @@ void *dx_realloc(void *p, size_t bytes)
 	return q;
 }
 
+void *dx_heap_refblock(const void *const *refs, unsigned count)
+{
+	auto *block = static_cast<RefBlock *>(Allocate(sizeof(RefBlock) + (count > 0 ? count - 1 : 0) * sizeof(void *), 0));
+	if (block == nullptr)
+		return nullptr;
+	reinterpret_cast<Header *>(reinterpret_cast<uint8_t *>(block) - HeaderBytes)->pool |= PoolRefBlock;
+	block->count = count;
+	memcpy(block->refs, refs, count * sizeof(void *));
+	return block;
+}
+
 void dx_free(void *p)
 {
 	Release(p);
@@ -370,6 +395,9 @@ int dx_posix_memalign(void **result, size_t align, size_t bytes)
 void dx_heap_out_of_memory(size_t bytes)
 {
 	(void)bytes;
+	dx_fcache_print_usage();
+	dx_fcache_print_map();
+	fflush(stdout);
 	fflush(Log);
 	abort();
 }

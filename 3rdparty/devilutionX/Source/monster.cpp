@@ -6,6 +6,7 @@
 #include "monster.h"
 #include "dx_fcache.hpp" // pico-lutionX
 #include "dx_heap.h" // pico-lutionX
+#include <new> // pico-lutionX
 
 #include <climits>
 #include <cstdint>
@@ -120,6 +121,82 @@ void InitMonsterTRN(CMonster &monst)
 		}
 	}
 }
+
+#ifdef DEVILUTIONX_PICO
+// pico-lutionX: contiguous PSRAM that loading a monster animation into PSRAM must leave free for
+// what follows; with less, the animation goes to the flash asset cache.
+constexpr size_t MonsterPsramReserve = 2 * 1024 * 1024;
+
+// pico-lutionX: a monster set as one buffer per animation, each loaded, converted and colour
+// translated by itself. Upstream reads all CL2 files of the set into one buffer, converts
+// them and copies the result into a final buffer: a peak of about twice the set (the full
+// game's largest are 1.8 MB, Diablo 3.4 MB), in blocks a fragmented heap often cannot give.
+// Here the peak is about twice the largest animation (841 KB). An animation stays in PSRAM,
+// which draws faster and writes no flash, unless that would leave less than
+// MonsterPsramReserve contiguous; then it goes to the flash asset cache as "<key>:a<i>",
+// where later visits find it. Returns the buffer the monster type owns: a reference block
+// (dx_heap_refblock) that frees or releases the animations with it. Fills sprites and sizes
+// for the animations with data, in order.
+std::unique_ptr<byte[]> LoadMonsterAnims(const MonsterData &monsterData, size_t numAnims, bool skipsAnim1,
+    std::array<const uint8_t *, 6> &sprites, std::array<size_t, 6> &sizes)
+{
+	char cacheKey[DxCacheKeyMax];
+	std::snprintf(cacheKey, sizeof(cacheKey), "mon:%s:%s:%d", monsterData.assetsSuffix,
+	    monsterData.trnFile != nullptr ? monsterData.trnFile : "", skipsAnim1 ? 1 : 0);
+	const FileNameWithCharAffixGenerator names({ "monsters\\", monsterData.assetsSuffix }, DEVILUTIONX_CL2_EXT, Animletter);
+	std::array<uint8_t, 256> colorTranslations;
+	bool haveTranslations = false;
+	std::array<std::unique_ptr<uint8_t[]>, 6> owned;
+	size_t count = 0;
+	for (size_t i = 0; i < numAnims; ++i) {
+		if (monsterData.frames[i] == 0)
+			continue;
+		char key[DxCacheKeyMax];
+		std::snprintf(key, sizeof(key), "%s:a%u", cacheKey, static_cast<unsigned>(i));
+		owned[count] = DxCacheFind<uint8_t>(key, &sizes[count]);
+		if (owned[count] == nullptr) {
+			// Converted into a vector whose buffer is then kept instead of copied: a copy needs a
+			// second block of the animation's size, which the deep levels do not always have.
+			// The vector is never destroyed; its buffer came from operator new (the PSRAM heap,
+			// src/port/dx_heap.cpp) and is freed or cached below like any other buffer.
+			alignas(std::vector<uint8_t>) unsigned char vectorStorage[sizeof(std::vector<uint8_t>)];
+			std::vector<uint8_t> &clx = *new (vectorStorage) std::vector<uint8_t>();
+			{
+				size_t cl2Size;
+				std::unique_ptr<uint8_t[]> cl2 = LoadFileInMem<uint8_t>(names(i), &cl2Size);
+				clx.reserve(cl2Size + 4096);
+				Cl2ToClx(cl2.get(), cl2Size, PointerOrValue<uint16_t> { monsterData.width }, clx);
+			}
+			if (monsterData.trnFile != nullptr && !(i == 1 && skipsAnim1)) {
+				if (!haveTranslations) {
+					char path[64];
+					*BufCopy(path, "monsters\\", monsterData.trnFile, ".trn") = '\0';
+					LoadFileInMem(path, colorTranslations);
+					std::replace(colorTranslations.begin(), colorTranslations.end(), 255, 0);
+					haveTranslations = true;
+				}
+				const ClxSpriteListOrSheet anim { clx.data(), GetNumListsFromClxListOrSheetBuffer(clx.data(), clx.size()) };
+				if (anim.isSheet())
+					ClxApplyTrans(ClxSpriteSheet { anim.sheet() }, colorTranslations.data());
+				else
+					ClxApplyTrans(ClxSpriteList { anim.list() }, colorTranslations.data());
+			}
+			sizes[count] = clx.size();
+			std::unique_ptr<uint8_t[]> buffer(clx.data());
+			if (dx_heap_largest_free() < clx.size() + MonsterPsramReserve)
+				owned[count] = DxCacheStore<uint8_t>(key, buffer.get(), clx.size());
+			if (owned[count] == nullptr)
+				owned[count] = std::move(buffer);
+		}
+		sprites[count] = owned[count].get();
+		++count;
+	}
+	const void *refs[6];
+	for (size_t j = 0; j < count; ++j)
+		refs[j] = owned[j].release();
+	return std::unique_ptr<byte[]>(static_cast<byte *>(dx_heap_refblock(refs, static_cast<unsigned>(count))));
+}
+#endif
 
 void InitMonster(Monster &monster, Direction rd, size_t typeIndex, Point position)
 {
@@ -3345,23 +3422,33 @@ void InitMonsterGFX(CMonster &monsterType)
 		return monsterData.frames[index] != 0;
 	};
 	constexpr size_t MaxAnims = 6;
-	std::array<uint32_t, MaxAnims + 1> animOffsets;
-	// pico-lutionX: flash asset cache. The cached copy is the converted buffer with its colour
-	// translation applied and the animation offsets in a header in front of the sprites.
-	constexpr size_t CacheHeader = (sizeof(animOffsets) + 7) & ~size_t { 7 };
-	const bool skipsAnim1 = IsAnyOf(mtype, MT_COUNSLR, MT_MAGISTR, MT_CABALIST, MT_ADVOCATE);
-	char cacheKey[DxCacheKeyMax];
-	std::snprintf(cacheKey, DxCacheKeyMax, "mon:%s:%s:%d", monsterData.assetsSuffix,
-	    monsterData.trnFile != nullptr ? monsterData.trnFile : "", skipsAnim1 ? 1 : 0);
-	bool fromCache = false;
-	if (!HeadlessMode) {
-		if (auto cached = DxCacheFind<byte>(cacheKey, nullptr)) {
-			memcpy(animOffsets.data(), cached.get(), sizeof(animOffsets));
-			monsterType.animData = std::move(cached);
-			fromCache = true;
+#ifdef DEVILUTIONX_PICO
+	// pico-lutionX: one buffer per animation, see LoadMonsterAnims
+	std::array<const uint8_t *, MaxAnims> sprites {};
+	std::array<size_t, MaxAnims> sizes {};
+	if (!HeadlessMode)
+		monsterType.animData = LoadMonsterAnims(monsterData, numAnims, IsAnyOf(mtype, MT_COUNSLR, MT_MAGISTR, MT_CABALIST, MT_ADVOCATE), sprites, sizes);
+	for (size_t i = 0, j = 0; i < numAnims; ++i) {
+		AnimStruct &anim = monsterType.anims[i];
+		if (!hasAnim(i)) {
+			anim.frames = 0;
+			continue;
 		}
+		anim.frames = monsterData.frames[i];
+		anim.rate = monsterData.rate[i];
+		anim.width = monsterData.width;
+		if (!HeadlessMode)
+			anim.sprites = ClxSpriteListOrSheet { sprites[j], GetNumListsFromClxListOrSheetBuffer(sprites[j], sizes[j]) };
+		++j;
 	}
-	if (!HeadlessMode && !fromCache) {
+
+	monsterType.data = &monsterData;
+
+	if (HeadlessMode)
+		return;
+#else
+	std::array<uint32_t, MaxAnims + 1> animOffsets;
+	if (!HeadlessMode) {
 		monsterType.animData = MultiFileLoader<MaxAnims> {}(
 		    numAnims,
 		    FileNameWithCharAffixGenerator({ "monsters\\", monsterData.assetsSuffix }, DEVILUTIONX_CL2_EXT, Animletter),
@@ -3370,17 +3457,16 @@ void InitMonsterGFX(CMonster &monsterType)
 	}
 
 #ifndef UNPACKED_MPQS
-	if (!HeadlessMode && !fromCache) {
+	if (!HeadlessMode) {
 		// Convert CL2 to CLX:
 		std::vector<std::vector<uint8_t>> clxData;
-		size_t accumulatedSize = CacheHeader; // pico-lutionX: room for the offsets in front
+		size_t accumulatedSize = 0;
 		for (size_t i = 0, j = 0; i < numAnims; ++i) {
 			if (!hasAnim(i))
 				continue;
 			const uint32_t begin = animOffsets[j];
 			const uint32_t end = animOffsets[j + 1];
 			clxData.emplace_back();
-			clxData.back().reserve(end - begin); // pico-lutionX: avoid growth peaks
 			Cl2ToClx(reinterpret_cast<uint8_t *>(&monsterType.animData[begin]), end - begin,
 			    PointerOrValue<uint16_t> { monsterData.width }, clxData.back());
 			animOffsets[j] = accumulatedSize;
@@ -3389,64 +3475,41 @@ void InitMonsterGFX(CMonster &monsterType)
 		}
 		animOffsets[clxData.size()] = accumulatedSize;
 		monsterType.animData = nullptr;
-		{
-			DxCacheableScope dxCacheable; // pico-lutionX: final sprite buffer
-			monsterType.animData = std::unique_ptr<byte[]>(new byte[accumulatedSize]);
-		}
+		monsterType.animData = std::unique_ptr<byte[]>(new byte[accumulatedSize]);
 		for (size_t i = 0; i < clxData.size(); ++i) {
 			memcpy(&monsterType.animData[animOffsets[i]], clxData[i].data(), clxData[i].size());
 		}
 	}
 #endif
 
-	const auto setSprites = [&]() { // pico-lutionX: again after the buffer moved to the cache
-		for (size_t i = 0, j = 0; i < numAnims; ++i) {
-			AnimStruct &anim = monsterType.anims[i];
-			if (!hasAnim(i)) {
-				anim.frames = 0;
-				continue;
-			}
-			anim.frames = monsterData.frames[i];
-			anim.rate = monsterData.rate[i];
-			anim.width = monsterData.width;
-			if (!HeadlessMode) {
-				const uint32_t begin = animOffsets[j];
-				const uint32_t end = animOffsets[j + 1];
-				auto spritesData = reinterpret_cast<uint8_t *>(&monsterType.animData[begin]);
-				const uint16_t numLists = GetNumListsFromClxListOrSheetBuffer(spritesData, end - begin);
-				anim.sprites = ClxSpriteListOrSheet { spritesData, numLists };
-			}
-			++j;
+	for (size_t i = 0, j = 0; i < numAnims; ++i) {
+		AnimStruct &anim = monsterType.anims[i];
+		if (!hasAnim(i)) {
+			anim.frames = 0;
+			continue;
 		}
-	};
-	setSprites();
+		anim.frames = monsterData.frames[i];
+		anim.rate = monsterData.rate[i];
+		anim.width = monsterData.width;
+		if (!HeadlessMode) {
+			const uint32_t begin = animOffsets[j];
+			const uint32_t end = animOffsets[j + 1];
+			auto spritesData = reinterpret_cast<uint8_t *>(&monsterType.animData[begin]);
+			const uint16_t numLists = GetNumListsFromClxListOrSheetBuffer(spritesData, end - begin);
+			anim.sprites = ClxSpriteListOrSheet { spritesData, numLists };
+		}
+		++j;
+	}
 
 	monsterType.data = &monsterData;
 
 	if (HeadlessMode)
 		return;
 
-	if (monsterData.trnFile != nullptr && !fromCache) { // pico-lutionX: a cached copy is translated already
+	if (monsterData.trnFile != nullptr) {
 		InitMonsterTRN(monsterType);
 	}
-
-	// pico-lutionX: move the finished buffer into the flash asset cache, but only when PSRAM
-	// gets tight: monster sets change with every level, so caching them all would rewrite
-	// the flash on each new level, while PSRAM usually has room for a level's monsters.
-	// "Tight" is judged by the largest free block, since the loads that follow need
-	// contiguous memory.
-	constexpr size_t MonsterPsramReserve = 2 * 1024 * 1024;
-	if (!fromCache && dx_heap_largest_free() < MonsterPsramReserve) {
-		size_t numWithData = 0;
-		for (size_t i = 0; i < numAnims; ++i)
-			numWithData += hasAnim(i) ? 1 : 0;
-		memcpy(&monsterType.animData[0], animOffsets.data(), sizeof(animOffsets));
-		auto cached = DxCacheStore<byte>(cacheKey, monsterType.animData.get(), animOffsets[numWithData]);
-		if (cached != nullptr) {
-			monsterType.animData = std::move(cached);
-			setSprites();
-		}
-	}
+#endif
 
 	if (IsAnyOf(mtype, MT_NMAGMA, MT_YMAGMA, MT_BMAGMA, MT_WMAGMA))
 		GetMissileSpriteData(MissileGraphicID::MagmaBall).LoadGFX();

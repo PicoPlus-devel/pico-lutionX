@@ -76,6 +76,11 @@ void dx_fcache_begin_level(void);
 // Writes the directory to flash if it changed (after a level has loaded).
 void dx_fcache_commit(void);
 void dx_fcache_get_stats(dx_fcache_stats_t *st);
+// Prints the cache contents by kind (the key up to its first ':'): bytes, bytes the engine
+// holds references to (which cannot be evicted) and entries.
+void dx_fcache_print_usage(void);
+// Prints a map of the region, 64 KB per character: in use, evictable or free.
+void dx_fcache_print_map(void);
 
 #ifdef __cplusplus
 }
