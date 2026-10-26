@@ -5,8 +5,12 @@
 // the read started on the previous call and starts the next one, so a read
 // (about 200 us at the driver's 1 MHz PIO clock) never stalls the interrupt.
 // The buttons are translated to io::GamePadState::Button bits per port and
-// merged with the USB pads, so a pad in a port acts exactly like the USB pad
-// with the same buttons (dx_input.cpp names them by position).
+// merged with the USB pads, so a SNES pad in a port acts exactly like the USB
+// pad with the same buttons (dx_input.cpp names them by position). A NES pad
+// gets a layout of its own, see nes_to_buttons.
+//
+// A SNES Mouse in either port (NESPAD_SNES_MOUSE in the board header) is read
+// by the same reads; dx_usb.cpp merges its buttons and motion with a USB mouse.
 //
 // From pico-duke3D's duke_usb_input.cpp (nesButtons, nesToButtons), which has the
 // two rules learned on hardware:
@@ -37,41 +41,105 @@
 #define HAVE_PORT_1		0
 #endif
 #define DEAD_AFTER_US	1000000
+// Cursor pixels per SNES Mouse count. The driver keeps the mouse at its lowest
+// sensitivity, about 50 counts per inch: 4 moves the cursor across the 640
+// pixels of the screen in about 3 inches.
+#define MOUSE_SCALE		4
 
 static bool		up, dead;
 static uint32_t	last;				// io bits of the last completed read
+static uint8_t	mouse_buttons;		// SNES Mouse buttons of the last completed read
 static uint64_t	not_ready_since;
 
-// nespad_states_ext is in SNES serial order: bit 0 B, 1 Y, 2 Select, 3 Start,
-// 4-7 up, down, left, right, 8 A, 9 X, 10 L, 11 R. A NES pad shifts out only 8
-// bits, so its A and B arrive where a SNES pad has B and Y; they go on io A and
-// io B, as a two-button USB pad has them. A port the driver has not identified
-// (no SNES ID yet, which includes clone NES pads) is read as a NES pad: a SNES
-// pad that does not identify itself does so the first time A, X, L or R is down.
-static uint32_t to_buttons (uint16_t w, bool snes)
+using Button = io::GamePadState::Button;
+
+static uint32_t dpad_buttons (uint16_t w)
 {
-	using Button = io::GamePadState::Button;
 	uint32_t	b = 0;
 
-	if (w & 0x0004) b |= Button::SELECT;
-	if (w & 0x0008) b |= Button::START;
 	if (w & 0x0010) b |= Button::UP;
 	if (w & 0x0020) b |= Button::DOWN;
 	if (w & 0x0040) b |= Button::LEFT;
 	if (w & 0x0080) b |= Button::RIGHT;
-	if (!snes)
-	{
-		if (w & 0x0001) b |= Button::A;
-		if (w & 0x0002) b |= Button::B;
-		return b;
-	}
+	return b;
+}
+
+// nespad_states_ext is in SNES serial order: bit 0 B, 1 Y, 2 Select, 3 Start,
+// 4-7 up, down, left, right, 8 A, 9 X, 10 L, 11 R. A SNES pad's buttons go on
+// the io buttons of the same position.
+static uint32_t snes_to_buttons (uint16_t w)
+{
+	uint32_t	b = dpad_buttons (w);
+
 	if (w & 0x0001) b |= Button::B;
 	if (w & 0x0002) b |= Button::Y;
+	if (w & 0x0004) b |= Button::SELECT;
+	if (w & 0x0008) b |= Button::START;
 	if (w & 0x0100) b |= Button::A;
 	if (w & 0x0200) b |= Button::X;
 	if (w & 0x0400) b |= Button::L;
 	if (w & 0x0800) b |= Button::R;
 	return b;
+}
+
+// A NES pad shifts out only 8 bits: A and B arrive where a SNES pad has B and
+// Y. Two buttons cannot reach the game's actions one to one, so Select is a
+// shift key on a NES pad, and is not passed on by itself:
+//
+//   A            primary action (io A: attack, talk, take an item)
+//   B            secondary action (io X: open, pick up; selects in the menus)
+//   Select+A     cast the spell (io Y)
+//   Select+B     speedbook, or close the open panels (io B)
+//   Select+Up    health potion (io L)
+//   Select+Down  mana potion (io R)
+//   Start        held, the game's gamepad menu: with the d-pad game menu, map,
+//                character and inventory, with A the spellbook (io B) and
+//                with B the quest log (io Y)
+//   Select+Start game menu
+//
+// A port the driver has not identified (no SNES ID yet, which includes clone
+// NES pads) is read as a NES pad: a SNES pad that does not identify itself does
+// so the first time A, X, L or R is down.
+static uint32_t nes_to_buttons (uint16_t w)
+{
+	const bool	a = w & 0x0001, b = w & 0x0002;
+	const bool	select = w & 0x0004, start = w & 0x0008;
+	uint32_t	io;
+
+	if (start)
+	{
+		io = Button::START | dpad_buttons (w);
+		if (select) io |= Button::SELECT;
+		if (a) io |= Button::B;
+		if (b) io |= Button::Y;
+		return io;
+	}
+	if (select)
+	{
+		io = 0;
+		if (a) io |= Button::Y;
+		if (b) io |= Button::B;
+		if (w & 0x0010) io |= Button::L;
+		if (w & 0x0020) io |= Button::R;
+		return io;
+	}
+	io = dpad_buttons (w);
+	if (a) io |= Button::A;
+	if (b) io |= Button::X;
+	return io;
+}
+
+static uint32_t to_buttons (int port)
+{
+	switch (nespad_padtype[port])
+	{
+	case NESPAD_TYPE_SNES:
+		return snes_to_buttons (nespad_states_ext[port]);
+	case NESPAD_TYPE_MOUSE:
+		return 0;
+	default:
+		return nes_to_buttons (nespad_states_ext[port]);
+	}
 }
 
 void dx_nespad_init (void)
@@ -113,15 +181,32 @@ uint32_t dx_nespad_buttons (void)
 			printf ("dx_nespad: a read never completed, ports disabled\n");
 			dead = true;
 			last = 0;
+			mouse_buttons = 0;
 		}
 		return last;
 	}
 	not_ready_since = 0;
 	nespad_read_finish ();
-	last = to_buttons (nespad_states_ext[0], nespad_padtype[0] == NESPAD_TYPE_SNES)
-		| to_buttons (nespad_states_ext[1], nespad_padtype[1] == NESPAD_TYPE_SNES);
+	last = to_buttons (0) | to_buttons (1);
+	// 0 on a port without a mouse
+	mouse_buttons = nespad_mouse[0].buttons | nespad_mouse[1].buttons;
 	nespad_read_start ();
 	return last;
+}
+
+uint8_t dx_nespad_mouse_buttons (void)
+{
+	return mouse_buttons;
+}
+
+void dx_nespad_mouse_motion (int *dx, int *dy)
+{
+	for (int i = 0; i < 2; i++)
+	{
+		*dx += nespad_mouse[i].dx * MOUSE_SCALE;
+		*dy += nespad_mouse[i].dy * MOUSE_SCALE;
+		nespad_mouse[i].dx = nespad_mouse[i].dy = 0;
+	}
 }
 
 #else
@@ -133,6 +218,15 @@ void dx_nespad_init (void)
 uint32_t dx_nespad_buttons (void)
 {
 	return 0;
+}
+
+uint8_t dx_nespad_mouse_buttons (void)
+{
+	return 0;
+}
+
+void dx_nespad_mouse_motion (int *, int *)
+{
 }
 
 #endif

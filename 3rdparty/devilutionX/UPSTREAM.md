@@ -52,6 +52,9 @@ Port changes:
   card's game data folder when `DEVILUTIONX_PICO_DATA_DIR` is defined (the board).
 - `utils/soundsample.cpp`: streamed sounds share the MPQ archive instead of opening a
   second copy (`DEVILUTIONX_PICO_SINGLE_THREADED`).
+- `controls/menu_controls.cpp`: the top face button (Y) also selects in the main menu
+  screens, as it already does in the in-game menu and the stores; it is a NES pad's B
+  (`src/pico/dx_nespad.cpp`).
 
 Flash asset cache (`src/port/dx_fcache.hpp`):
 

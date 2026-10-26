@@ -24,6 +24,9 @@ namespace io
             inline static constexpr int START = 1 << 7;
             inline static constexpr int L = 1 << 8;
             inline static constexpr int R = 1 << 9;
+            // pico-lutionX: stick clicks (L3, R3) of XInput, DualShock 4 and DualSense pads
+            inline static constexpr int LSTICK = 1 << 10;
+            inline static constexpr int RSTICK = 1 << 11;
 
             inline static constexpr int LEFT = 1 << 31;
             inline static constexpr int RIGHT = 1 << 30;

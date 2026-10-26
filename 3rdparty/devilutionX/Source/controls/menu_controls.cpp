@@ -43,6 +43,7 @@ std::vector<MenuAction> GetMenuActions(const SDL_Event &event)
 			switch (TranslateTo(GamepadType, ctrlEvent.button)) {
 			case ControllerButton_BUTTON_A:
 			case ControllerButton_BUTTON_START:
+			case ControllerButton_BUTTON_Y: // pico-lutionX: also a NES pad's B (src/pico/dx_nespad.cpp)
 				menuActions.push_back(MenuAction_SELECT);
 				break;
 			case ControllerButton_BUTTON_BACK:

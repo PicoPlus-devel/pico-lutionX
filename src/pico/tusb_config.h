@@ -79,7 +79,11 @@
 #define CFG_TUSB_MEM_ALIGN          __attribute__ ((aligned(4)))
 #endif
 
-#define USB_MAX_ENDPOINTS 4
+// No USB_MAX_ENDPOINTS here (pico-quake2 had 4): newer TinyUSB sizes the native host
+// driver's endpoint pool by it (hcd_rp2040.c ep_pool), whose first entry is kept for
+// enumeration. With 4, a hub (EP0 and its interrupt endpoint) and the EP0 of one device
+// behind it filled the pool, and that device's interrupt endpoint failed to open. The SDK
+// default is 16.
 //--------------------------------------------------------------------
 // CONFIGURATION
 //--------------------------------------------------------------------

@@ -143,6 +143,10 @@ static void setup_clocks(void)
 	clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
 	    126000000u, 126000000u);
 #else
+	// The native USB controller is the host (HW_CONFIG 2) and needs PLL_USB at its
+	// 48 MHz, so clk_hstx comes from clk_sys (378 / 3 or 504 / 4 = 126 MHz), as in
+	// pico_shared and pico-doom on these boards. PLL_SYS jitter then rides on the TMDS
+	// clock, which strict HDMI displays can show as sparkles.
 	clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLK_SYS,
 	    DX_CPU_KHZ * 1000u, 126000000u);
 #endif
@@ -208,11 +212,14 @@ static int32_t psram_size;
 static size_t heap_size;
 
 // Holds the board's peripheral reset line (if it has one) released, as pico-quake2 does.
+// Through the SIO registers: gpio_put and gpio_set_dir use the RP2350's GPIO coprocessor,
+// which the per-core initialisers only enable after this early init, so they hard-faulted
+// here (pico-quake2 calls this from main).
 static void release_peripheral_reset(void)
 {
 #ifdef DX_PERIPH_RESET_PIN
-	gpio_put(DX_PERIPH_RESET_PIN, 1);
-	gpio_set_dir(DX_PERIPH_RESET_PIN, GPIO_OUT);
+	sio_hw->gpio_set = 1u << DX_PERIPH_RESET_PIN;
+	sio_hw->gpio_oe_set = 1u << DX_PERIPH_RESET_PIN;
 	gpio_set_function(DX_PERIPH_RESET_PIN, GPIO_FUNC_SIO);
 #endif
 }

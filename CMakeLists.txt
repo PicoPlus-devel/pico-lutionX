@@ -53,6 +53,14 @@ if (NOT PICO_PIO_USB_PATH AND DEFINED ENV{PICO_PIO_USB_PATH})
     set(PICO_PIO_USB_PATH $ENV{PICO_PIO_USB_PATH})
 endif()
 
+# DX_USB_LOG: TinyUSB's host log on the UART (enumeration, hub ports and every transfer),
+# for finding out why a USB device does not work. Off by default: printing waits for the
+# UART, and every input report is logged. The SDK's tinyusb reads LOG as it is set up.
+option(DX_USB_LOG "TinyUSB host log on the UART" OFF)
+if (DX_USB_LOG)
+    set(LOG 2)
+endif()
+
 include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
 
 project(pico_lutionx C CXX ASM)

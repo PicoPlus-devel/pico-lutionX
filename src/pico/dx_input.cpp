@@ -3,14 +3,18 @@
 // dx_input_poll runs in thread context (from SDL_PollEvent) and turns the events the
 // USB timer recorded (dx_usb.cpp) into SDL 1.2 events (src/sdl/sdl_backend.h):
 //   - keyboard: HID usages to SDL keys, with the character for text input (US layout);
-//   - mouse: buttons, wheel notches (SDL buttons 4 and 5) and relative motion, which the
-//     SDL subset integrates into the cursor position;
+//   - mouse (a USB mouse merged with a SNES Mouse in a controller port): buttons, wheel
+//     notches (SDL buttons 4 and 5) and relative motion, which the SDL subset integrates
+//     into the cursor position;
 //   - gamepads (USB pads merged with the NES/SNES ports): SDL joystick 0, buttons and
 //     axes as cmake/dx_engine.cmake declares them to the engine (JOY_*).
 //
 // Gamepad buttons are named by position, as the HID driver reports them: io B is the
 // bottom face button (Xbox A, PlayStation cross, SNES B), io A the right one, io Y the
-// left one and io X the top one.
+// left one and io X the top one. What they do is DevilutionX's default gamepad layout
+// (InitPadmapActions), which every pad reaches: the USB pads with all of their buttons, a
+// SNES pad (no triggers, no sticks) partly through the engine's Start menu, and a NES pad
+// through a layout of its own (dx_nespad.cpp).
 
 #include <cstdint>
 
@@ -136,6 +140,8 @@ int JoystickButtonForPadBit(int bit)
 	case static_cast<unsigned>(Button::Z): return 7;      // JOY_BUTTON_TRIGGERRIGHT
 	case static_cast<unsigned>(Button::SELECT): return 8; // JOY_BUTTON_BACK
 	case static_cast<unsigned>(Button::START): return 9;  // JOY_BUTTON_START
+	case static_cast<unsigned>(Button::LSTICK): return 10; // JOY_BUTTON_LEFTSTICK
+	case static_cast<unsigned>(Button::RSTICK): return 11; // JOY_BUTTON_RIGHTSTICK
 	case static_cast<unsigned>(Button::UP): return 12;    // JOY_BUTTON_DPAD_UP
 	case static_cast<unsigned>(Button::DOWN): return 13;
 	case static_cast<unsigned>(Button::LEFT): return 14;

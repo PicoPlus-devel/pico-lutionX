@@ -14,8 +14,11 @@ still runs slower than intended; see the README for what has been tested.
   the Adafruit Fruit Jam and on a Pimoroni Pico Plus 2 with the Adafruit DVI and microSD
   breakouts.
 - 640×480 picture over HDMI, music and sound over HDMI or the headphone jack.
-- USB keyboard, mouse and gamepads; NES and SNES controllers on the PicoNES PCB; the Wii
-  Classic Controller on the Fruit Jam.
+- USB keyboard, mouse and gamepads; NES and SNES controllers and the SNES Mouse on the
+  PicoNES PCB; the Wii Classic Controller on the Fruit Jam.
+- Every button of Xbox, PlayStation, SNES and NES controllers has a function in the
+  game, including the stick clicks. On a NES controller, Select gives access to spells
+  and potions.
 - Graphics and sounds are copied to the board's flash memory the first time they are
   needed, so later loads are faster.
 - Saved games are compatible with DevilutionX 1.5.5 on a PC.

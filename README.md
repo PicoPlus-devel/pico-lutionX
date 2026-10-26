@@ -36,6 +36,8 @@ Verified on a Pimoroni Pico Plus 2 with the Adafruit DVI and microSD breakouts
 - The main menu, the town and the first level of the cathedral, including fighting.
 - Saving a game and loading it again.
 - A NES controller on a controller port.
+- A USB keyboard and a USB mouse on the USB-C port, and an original SNES Mouse on a
+  controller port.
 - The game's graphics and sounds are copied to flash and used from there after a
   restart.
 
@@ -65,7 +67,7 @@ Verified in the test program on a PC (`hosttest/`), with the board's 8 MB of PSR
 Not yet verified on a board:
 
 - the Fruit Jam, and its headphone jack;
-- USB keyboards, mice and gamepads, SNES controllers and the Wii extension port;
+- USB gamepads, SNES controllers and the Wii extension port;
 - the second level of the cathedral;
 - the full game (`DIABDAT.MPQ`).
 
@@ -83,10 +85,11 @@ wrong"). Network play and Hellfire are not supported.
 | Pimoroni Pico Plus 2 with the [Adafruit DVI Breakout](https://www.adafruit.com/product/4984) and [Adafruit MicroSD breakout](https://www.adafruit.com/product/254), on a breadboard or the PicoNES PCB | 2 | `pico-lutionX_adafruitdvisd.uf2` |
 
 Both boards need an RP2350 with 8 MB of PSRAM and 16 MB of flash. On the Pico Plus 2
-board, USB devices are connected through a USB-A socket wired to GPIO 20 (D+) and 21
-(D−), as for pico-quake2; NES or SNES controllers can be connected to the controller
-ports of the PicoNES PCB. On the Fruit Jam, a Wii Classic Controller (or a compatible
-pad) can be connected to its Wii extension port.
+board, USB devices are connected to the USB-C port of the Pico Plus 2 through a USB OTG
+adapter or Y-cable, which also has to supply the board's power; NES or SNES controllers
+and an original SNES Mouse can be connected to the controller ports of the PicoNES PCB.
+On the Fruit Jam, a Wii Classic Controller (or a compatible pad) can be connected to its
+Wii extension port.
 
 ## What you need
 
@@ -94,7 +97,8 @@ pad) can be connected to its Wii extension port.
 - The game data: `spawn.mpq` (the shareware data) or `DIABDAT.MPQ` (from the Diablo CD
   or a digital copy)
 - A USB keyboard and mouse, or a USB gamepad; with several devices on one USB port, a
-  USB hub
+  USB hub. On the Pico Plus 2 board, NES or SNES controllers and a SNES Mouse can be used
+  as well.
 - Optionally, headphones (Fruit Jam) or a PCM5100A DAC (Pico Plus 2 board)
 
 ## Installing
@@ -153,24 +157,56 @@ for example `I` for the inventory, `C` for the character sheet, `B` for the spel
 `Tab` for the map, `1`–`8` for the belt and `F1` for help. They can be changed in the
 settings of the main menu.
 
+On the Pico Plus 2 board, an original SNES Mouse can be used instead of, or together
+with, a USB mouse. It plugs into either controller port (a port for NES controllers needs
+a SNES-to-NES adapter cable), and a controller can be used in the other port at the same
+time. Its two buttons are the left and right mouse buttons. The board sets the mouse to
+its lowest sensitivity when it is connected; the cursor then moves about 200 pixels per
+inch.
+
 ### Gamepad
 
-USB gamepads (Xbox, PlayStation, Switch and generic USB pads), NES/SNES controllers and
-the Wii Classic Controller are presented to the game as one gamepad, with the buttons
-named by position:
+USB gamepads (Xbox and other XInput pads, DualShock 4, DualSense, Switch and generic USB
+pads), NES and SNES controllers and the Wii Classic Controller are presented to the game
+as one gamepad. Every button of the Xbox, PlayStation, SNES and NES controllers has a
+function:
 
-| Button | Position (Xbox / PlayStation / SNES) |
-|---|---|
-| A | bottom (A / cross / B) |
-| B | right (B / circle / A) |
-| X | left (X / square / Y) |
-| Y | top (Y / triangle / X) |
-| Left and right shoulder | LB, RB / L1, R1 / L, R |
-| Left and right trigger | LT, RT / L2, R2 |
-| Back, Start | View or Select, Menu or Start |
+| Action | Xbox | PlayStation | SNES | NES |
+|---|---|---|---|---|
+| Walk | D-pad, left stick | D-pad, left stick | D-pad | D-pad |
+| Attack, talk; take or place an item in the inventory | B | Circle | A | A |
+| Open doors and chests, pick up items; use an item in the inventory | Y | Triangle | X | B |
+| Cast the active spell | X | Square | Y | Select + A |
+| Speedbook (choose the active spell); close the open panels | A | Cross | B | Select + B |
+| Health potion | LB | L1 | L | Select + Up |
+| Mana potion | RB | R1 | R | Select + Down |
+| Character sheet | LT | L2 | Start + Left | Start + Left |
+| Inventory | RT | R2 | Start + Right | Start + Right |
+| Spellbook | Back + RT | Share + R2 | Start + B | Start + A |
+| Quest log | Back + LT | Share + L2 | Start + Y | Start + B |
+| Automap | Left stick click | L3 | Start + Down | Start + Down |
+| Game menu | Back + Start, Guide | Share + Options, PS | Select + Start | Select + Start |
+| Quick spells 1 to 4 | Back + X, Y, A, B | Share + Square, Triangle, Cross, Circle | Select + Y, X, B, A | |
+| Move the cursor | Right stick, Back + D-pad | Right stick, Share + D-pad | Select + D-pad | |
+| Left mouse button | Right stick click, Back + LB | R3, Share + L1 | Select + L | |
+| Right mouse button | Back + right stick click, Back + RB | Share + R3, Share + R1 | Select + R | |
 
-What each button does is DevilutionX's gamepad layout, which can be changed in the
-settings. A new hero can be created with a gamepad only: a name is filled in.
+- Back is labelled View on newer Xbox controllers. On PlayStation controllers, Share
+  (Create on the DualSense) and a click on the touchpad are Back, and Options is Start.
+- Holding Start opens DevilutionX's gamepad menu on every controller. With it, Up opens
+  the game menu, Down the automap, Left the character sheet and Right the inventory; the
+  bottom face button opens the spellbook and the left face button the quest log. On a
+  NES controller, A and B take the place of these two face buttons.
+- A quick spell is assigned by opening the speedbook, pointing at a spell and pressing
+  Back together with a face button.
+- On a NES controller, Select only works together with another button.
+- In the main menu, the bottom face button (NES: B) or Start confirms, the right face
+  button (NES: A) goes back.
+
+The layout is DevilutionX's own and can be changed in the settings (Padmapping). The
+combinations with Select on a NES controller stand for the SNES buttons in the same row
+of the table and follow such changes. A new hero can be created with a gamepad only: a
+name is filled in.
 
 ## Saving
 
@@ -221,7 +257,7 @@ game".
 ## Building from source
 
 ```sh
-export PICO_SDK_PATH=/path/to/pico-sdk          # version 2.2.0
+export PICO_SDK_PATH=/path/to/pico-sdk          # version 2.2.0, with its TinyUSB 0.18.0
 export PICO_PIO_USB_PATH=/path/to/Pico-PIO-USB
 ./fruitjam-build.sh                             # or ./adafruitdvisd-build.sh
 ./fruitjam-build-forbootloader.sh               # pico-bootLoader variant

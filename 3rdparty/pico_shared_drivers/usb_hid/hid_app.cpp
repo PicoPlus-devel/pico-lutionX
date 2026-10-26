@@ -489,8 +489,10 @@ extern "C"
 
         // Parse report descriptor with built-in parser
         _report_count[instance] = tuh_hid_parse_report_descriptor(_report_info_arr[instance], MAX_REPORT, desc_report, desc_len);
-        printf("HID has %u reports and interface protocol = %d:%s\n", _report_count[instance],
-               interface_protocol, protocol_str[interface_protocol]);
+        // pico-lutionX: with the protocol in use (see processHIDReport)
+        printf("HID has %u reports and interface protocol = %d:%s, %s protocol\n", _report_count[instance],
+               interface_protocol, protocol_str[interface_protocol],
+               tuh_hid_get_protocol(dev_addr, instance) == HID_PROTOCOL_BOOT ? "boot" : "report");
 
         if (!tuh_hid_receive_report(dev_addr, instance))
         {
@@ -531,6 +533,65 @@ extern "C"
     // passes a failed transfer on as a zero-length report, so one transfer error
     // (a DualShock 4 on PIO-USB at 378 MHz) left the pad dead until replugged.
     // tuh_hid_report_received_cb below now re-arms on every path.
+    //
+    // pico-lutionX: the keyboard report handling, from the HID_USAGE_DESKTOP_KEYBOARD
+    // branch of processHIDReport, so that boot-protocol reports can use it too. A
+    // report shorter than the 8-byte boot report counts the missing keys as released.
+    static void processKeyboardReport(int player, uint8_t const *report, uint16_t len)
+    {
+        hid_keyboard_report_t rep = {};
+        memcpy(&rep, report, len < sizeof(rep) ? len : sizeof(rep));
+        auto r = &rep;
+        // Expose the raw HID report for emulators that emulate a
+        // real keyboard (e.g. O2 / G7400). The gamepad mapping
+        // below stays in place for joystick-style use.
+        auto &kb = const_cast<io::KeyboardState &>(io::getCurrentKeyboardState());
+        kb.modifier = r->modifier;
+        memcpy(kb.keycode, r->keycode, sizeof(kb.keycode));
+        auto &gp = io::getCurrentGamePadState(player);
+        gp.GamePadName = "Keyboard";
+        gp.GamePadShortName = "KB";
+        gp.buttons = 0;
+        for (uint8_t i = 0; i < 6; i++)
+        {
+            if (r->keycode[i])
+            {
+                switch (r->keycode[i])
+                {
+                case HID_KEY_A:
+                    gp.buttons |= io::GamePadState::Button::SELECT;
+                    break;
+                case HID_KEY_S:
+                    gp.buttons |= io::GamePadState::Button::START;
+                    break;
+                case HID_KEY_Z:
+                    gp.buttons |= (abSwapped ? io::GamePadState::Button::B : io::GamePadState::Button::A);
+                    break;
+                case HID_KEY_X:
+                    gp.buttons |= (abSwapped ? io::GamePadState::Button::A : io::GamePadState::Button::B);
+                    break;
+                case HID_KEY_C:
+                    gp.buttons |= io::GamePadState::Button::X;
+                    break;
+                case HID_KEY_ARROW_UP:
+                    gp.buttons |= io::GamePadState::Button::UP;
+                    break;
+                case HID_KEY_ARROW_DOWN:
+                    gp.buttons |= io::GamePadState::Button::DOWN;
+                    break;
+                case HID_KEY_ARROW_LEFT:
+                    gp.buttons |= io::GamePadState::Button::LEFT;
+                    break;
+                case HID_KEY_ARROW_RIGHT:
+                    gp.buttons |= io::GamePadState::Button::RIGHT;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+
     static void processHIDReport(uint8_t dev_addr,
                                  uint8_t instance, uint8_t const *report, uint16_t len)
     {
@@ -547,6 +608,18 @@ extern "C"
         int player = getPlayerIndex(dev_addr);
         if (player < 0)
         {
+            return;
+        }
+        // pico-lutionX: a keyboard in boot protocol (which TinyUSB sets at mount, as
+        // for the mouse above) sends the 8-byte boot report, without a report ID,
+        // whatever its report descriptor declares. Parsed with that descriptor below,
+        // every report was dropped ("Couldn't find the report info") when the
+        // descriptor uses report IDs (media keys on the same interface) or was not
+        // read at all (longer than CFG_TUH_ENUMERATION_BUFSIZE).
+        if (tuh_hid_interface_protocol(dev_addr, instance) == HID_ITF_PROTOCOL_KEYBOARD &&
+            tuh_hid_get_protocol(dev_addr, instance) == HID_PROTOCOL_BOOT)
+        {
+            processKeyboardReport(player, report, len);
             return;
         }
 
@@ -597,7 +670,11 @@ extern "C"
                              (r->buttons2 & DS4Report::Button2::R1 ? io::GamePadState::Button::R : 0) |
                              (r->buttons2 & DS4Report::Button2::SHARE ? io::GamePadState::Button::SELECT : 0) |
                              (r->tpad ? io::GamePadState::Button::SELECT : 0) |
-                             (r->buttons2 & DS4Report::Button2::OPTIONS ? io::GamePadState::Button::START : 0);
+                             (r->buttons2 & DS4Report::Button2::OPTIONS ? io::GamePadState::Button::START : 0) |
+                             // pico-lutionX: stick clicks, and the PS button as Select+Start (as XInput's Guide)
+                             (r->buttons2 & DS4Report::Button2::L3 ? io::GamePadState::Button::LSTICK : 0) |
+                             (r->buttons2 & DS4Report::Button2::R3 ? io::GamePadState::Button::RSTICK : 0) |
+                             (r->ps ? (io::GamePadState::Button::SELECT | io::GamePadState::Button::START) : 0);
                 gp.hat = static_cast<io::GamePadState::Hat>(r->getHat());
                 gp.convertButtonsFromAxis(0, 1);
                 gp.convertButtonsFromHat();
@@ -649,7 +726,11 @@ extern "C"
                     (buttons & DS5Report::Button::L1 ? io::GamePadState::Button::L : 0) |
                     (buttons & DS5Report::Button::R1 ? io::GamePadState::Button::R : 0) |
                     (buttons & (DS5Report::Button::SHARE | DS5Report::Button::TPAD) ? io::GamePadState::Button::SELECT : 0) |
-                    (buttons & DS5Report::Button::OPTIONS ? io::GamePadState::Button::START : 0);
+                    (buttons & DS5Report::Button::OPTIONS ? io::GamePadState::Button::START : 0) |
+                    // pico-lutionX: stick clicks, and the PS button as Select+Start (as XInput's Guide)
+                    (buttons & DS5Report::Button::L3 ? io::GamePadState::Button::LSTICK : 0) |
+                    (buttons & DS5Report::Button::R3 ? io::GamePadState::Button::RSTICK : 0) |
+                    (buttons & DS5Report::Button::PS ? (io::GamePadState::Button::SELECT | io::GamePadState::Button::START) : 0);
                 gp.hat = static_cast<io::GamePadState::Hat>(r->getHat());
                 gp.convertButtonsFromAxis(0, 1);
                 gp.convertButtonsFromHat();
@@ -909,58 +990,8 @@ extern "C"
                 switch (rpt_info->usage)
                 {
                 case HID_USAGE_DESKTOP_KEYBOARD:
-                {
-                    auto r = reinterpret_cast<const hid_keyboard_report_t *>(report);
-                    // Expose the raw HID report for emulators that emulate a
-                    // real keyboard (e.g. O2 / G7400). The gamepad mapping
-                    // below stays in place for joystick-style use.
-                    auto &kb = const_cast<io::KeyboardState &>(io::getCurrentKeyboardState());
-                    kb.modifier = r->modifier;
-                    memcpy(kb.keycode, r->keycode, sizeof(kb.keycode));
-                    auto &gp = io::getCurrentGamePadState(player);
-                    gp.GamePadName = "Keyboard";
-                    gp.GamePadShortName = "KB";
-                    gp.buttons = 0;
-                    for (uint8_t i = 0; i < 6; i++)
-                    {
-                        if (r->keycode[i])
-                        {
-                            switch (r->keycode[i])
-                            {
-                            case HID_KEY_A:
-                                gp.buttons |= io::GamePadState::Button::SELECT;
-                                break;
-                            case HID_KEY_S:
-                                gp.buttons |= io::GamePadState::Button::START;
-                                break;
-                            case HID_KEY_Z:
-                                gp.buttons |= (abSwapped ? io::GamePadState::Button::B : io::GamePadState::Button::A);
-                                break;
-                            case HID_KEY_X:
-                                gp.buttons |= (abSwapped ? io::GamePadState::Button::A : io::GamePadState::Button::B);
-                                break;
-                            case HID_KEY_C:
-                                gp.buttons |= io::GamePadState::Button::X;
-                                break;
-                            case HID_KEY_ARROW_UP:
-                                gp.buttons |= io::GamePadState::Button::UP;
-                                break;
-                            case HID_KEY_ARROW_DOWN:
-                                gp.buttons |= io::GamePadState::Button::DOWN;
-                                break;
-                            case HID_KEY_ARROW_LEFT:
-                                gp.buttons |= io::GamePadState::Button::LEFT;
-                                break;
-                            case HID_KEY_ARROW_RIGHT:
-                                gp.buttons |= io::GamePadState::Button::RIGHT;
-                                break;
-                            default:
-                                break;
-                            }
-                        }
-                    }
+                    processKeyboardReport(player, report, len);
                     break;
-                }
 
                 case HID_USAGE_DESKTOP_MOUSE:
                     TU_LOG1("HID receive mouse report\n");
@@ -1121,6 +1152,11 @@ extern "C"
                     gp.buttons |= io::GamePadState::Button::SELECT;
                 if (p->wButtons & XINPUT_GAMEPAD_GUIDE)
                     gp.buttons |= (io::GamePadState::Button::START | io::GamePadState::Button::SELECT);
+                // pico-lutionX: stick clicks
+                if (p->wButtons & XINPUT_GAMEPAD_LEFT_THUMB)
+                    gp.buttons |= io::GamePadState::Button::LSTICK;
+                if (p->wButtons & XINPUT_GAMEPAD_RIGHT_THUMB)
+                    gp.buttons |= io::GamePadState::Button::RSTICK;
                 // Left thumbstick doubles as the dpad (sThumbLY is positive up).
                 if (p->sThumbLX < -16384)
                     gp.buttons |= io::GamePadState::Button::LEFT;

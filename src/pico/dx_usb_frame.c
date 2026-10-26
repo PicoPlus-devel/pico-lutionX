@@ -14,6 +14,10 @@
 // core0 is masked except the frame one, which then sends only a bare SOF (or a
 // low-speed keep-alive) from SRAM. PIO-USB's full frame calls into flash and
 // waits until the write is done.
+//
+// Boards with the native USB controller (no HAS_USBPIO) never call
+// dx_usb_frame_start: the controller sends SOFs by itself, also during a flash
+// write, so dx_usb_flash_begin only switches interrupts off there.
 
 #include "pico/stdlib.h"
 #include "hardware/irq.h"

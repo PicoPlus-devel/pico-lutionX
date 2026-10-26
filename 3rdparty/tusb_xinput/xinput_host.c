@@ -606,11 +606,21 @@ void xinputh_close(uint8_t dev_addr)
 #endif
 #endif
 
+// pico-lutionX: TinyUSB changed usbh_class_driver_t's open() from bool to the length of the
+// descriptors it takes (commit ef018e364, 2025-12-11, within 0.20.1, so no version number
+// tells the two apart). The initializer picks the matching function by the member's type.
+static bool xinputh_open_bool(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+{
+    return xinputh_open(rhport, dev_addr, desc_itf, max_len) != 0;
+}
+
 usbh_class_driver_t const usbh_xinput_driver =
 {
     DRIVER_NAME("XINPUT")
     .init       = xinputh_init,
-    .open       = xinputh_open,
+    .open       = _Generic(((usbh_class_driver_t *)0)->open,
+                      bool (*)(uint8_t, uint8_t, tusb_desc_interface_t const *, uint16_t): xinputh_open_bool,
+                      default: xinputh_open),
     .set_config = xinputh_set_config,
     .xfer_cb    = xinputh_xfer_cb,
     .close      = xinputh_close

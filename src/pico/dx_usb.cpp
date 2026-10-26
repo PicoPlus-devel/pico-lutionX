@@ -1,4 +1,5 @@
-// dx_usb.cpp -- USB host for keyboards, mice and gamepads on Pico-PIO-USB.
+// dx_usb.cpp -- USB host for keyboards, mice and gamepads, on Pico-PIO-USB (boards with
+// HAS_USBPIO) or on the RP2350's native USB controller (the others).
 //
 // The pico_shared HID driver (3rdparty/pico_shared_drivers/usb_hid) keeps the latest
 // state of every device in io::. This file brings the host stack up and runs it from a
@@ -6,9 +7,12 @@
 // q2_usb.cpp). Each tick compares the devices with the previous tick and records the
 // changes as events in a ring (key, mouse button and pad button presses and releases),
 // so a tap shorter than a frame is not lost; the engine reads them in thread context
-// (dx_input.cpp). Mouse motion and the analog sticks are read directly.
+// (dx_input.cpp). Mouse motion and the analog sticks are read directly. The NES/SNES
+// controller ports (dx_nespad.cpp) are polled from the same timer: their pads are merged
+// with the USB pads, a SNES Mouse with the USB mouse.
 //
-// The 1 ms USB frame runs from its own SRAM-resident interrupt (dx_usb_frame.c).
+// With PIO-USB, the 1 ms USB frame runs from its own SRAM-resident interrupt
+// (dx_usb_frame.c); the native controller makes its frames itself.
 
 #include <stdio.h>
 #include <string.h>
@@ -19,14 +23,12 @@
 #include "hardware/timer.h"
 #include "hardware/dma.h"
 #include "tusb.h"
+#ifdef HAS_USBPIO
 #include "pio_usb_configuration.h"
+#endif
 #include "gamepad.h"
 
 #include "dx_input.h"
-
-#ifndef HAS_USBPIO
-#error "dx_usb.cpp needs a board with Pico-PIO-USB (HAS_USBPIO)"
-#endif
 
 #define USB_TICK_US 4000
 #define USB_TICK_ALARM 1 // hardware alarm for the sampling timer
@@ -116,7 +118,7 @@ static void sample_mouse(void)
 {
 	static uint8_t last_buttons;
 	io::MouseState &m = io::getCurrentMouseState();
-	uint8_t buttons = m.connected ? m.buttons : 0;
+	uint8_t buttons = (m.connected ? m.buttons : 0) | dx_nespad_mouse_buttons();
 
 	for (int bit = 0; bit < 3; bit++)
 		if (((buttons ^ last_buttons) >> bit) & 1)
@@ -161,9 +163,10 @@ static bool usb_tick(repeating_timer_t *)
 	for (int i = 0; i < 2; i++)
 		if (slot_is_keyboard(io::getCurrentGamePadState(i)))
 			keyboard = true;
+	uint32_t port_buttons = dx_nespad_buttons(); // also the SNES Mouse buttons
 	sample_keyboard(keyboard);
 	sample_mouse();
-	sample_pads(dx_nespad_buttons());
+	sample_pads(port_buttons);
 	return true;
 }
 
@@ -176,6 +179,7 @@ void dx_input_mouse(int *dx, int *dy, int *wheel)
 	*dy = m.dy;
 	*wheel = m.wheel;
 	m.dx = m.dy = m.wheel = 0;
+	dx_nespad_mouse_motion(dx, dy);
 	restore_interrupts(irq);
 }
 
@@ -206,8 +210,18 @@ void dx_input_sticks(int16_t axes[4])
 	}
 }
 
+// The port is built with the TinyUSB of pico-sdk 2.2.0 (0.18.0). Its driver for the native
+// controller was reliable with a hub in TinyUSB master of 2025-08-07 (5fb3c0996). With
+// master of May 2026, whose driver for it was rewritten, devices behind a hub were often
+// lost: status stages timed out, and it panicked ("buf_ctrl ... already available",
+// "Data Seq Error"). See TECHNICAL.md.
+#if !defined(HAS_USBPIO) && TUSB_VERSION_NUMBER > 1800
+#warning "native USB host: TinyUSB is newer than the tested 0.18.0 (master 2025-08-07); with master of May 2026, devices behind a hub were often lost"
+#endif
+
 void dx_usb_init(void)
 {
+#ifdef HAS_USBPIO
 #ifdef PIN_USB_HOST_VBUS
 	gpio_init(PIN_USB_HOST_VBUS);
 	gpio_set_dir(PIN_USB_HOST_VBUS, GPIO_OUT);
@@ -226,17 +240,25 @@ void dx_usb_init(void)
 	dma_channel_unclaim(pio_cfg.tx_ch); // pio_usb_bus_init claims it again
 	pio_cfg.skip_alarm_pool = true;     // frames come from dx_usb_frame.c
 	tuh_configure(CFG_TUH_RPI_PIO_USB, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
+#endif
 
 	const tusb_rhport_init_t host_init = {
 		.role = TUSB_ROLE_HOST,
 		.speed = TUSB_SPEED_AUTO,
 	};
+	// root port 1 is PIO-USB, 0 the native controller (tusb_config.h)
 	tusb_init(CFG_TUH_RPI_PIO_USB, &host_init);
+#ifdef HAS_USBPIO
 	dx_usb_frame_start();
+#endif
 
 	// Devices enumerate in the background once the timer runs.
 	tick_pool = alarm_pool_create(USB_TICK_ALARM, 1);
 	irq_set_priority(hardware_alarm_get_irq_num(USB_TICK_ALARM), PICO_LOWEST_IRQ_PRIORITY);
 	alarm_pool_add_repeating_timer_us(tick_pool, -USB_TICK_US, usb_tick, NULL, &tick_timer);
+#ifdef HAS_USBPIO
 	printf("dx_usb: PIO-USB host on GPIO %d/%d\n", PIN_USB_HOST_DP, PIN_USB_HOST_DM);
+#else
+	printf("dx_usb: USB host on the native USB port\n");
+#endif
 }

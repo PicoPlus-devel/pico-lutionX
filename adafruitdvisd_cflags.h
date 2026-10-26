@@ -21,10 +21,13 @@
 //   DX_AUDIO_I2S_DRIVER  PCM5100A: no codec and no headphone detect, so
 //                        dx_audio.c plays to HDMI and I2S at the same time.
 //                        Harmless with no DAC fitted.
-//   NES_PIN_*            the two controller ports, polled by dx_nespad.cpp.
-//   PIN_USB_HOST_*       PIO-USB on GPIO 20/21 (pico_shared's PIO_DP_PLUS_PIN for
-//                        this config). There is no VBUS switch: the USB-A
-//                        socket takes 5 V from VBUS directly.
+//   NES_PIN_*            the two controller ports, polled by dx_nespad.cpp: NES or
+//                        SNES pads, or a SNES Mouse (NESPAD_SNES_MOUSE).
+//   no HAS_USBPIO        the USB host is the RP2350's own controller, on the
+//                        module's USB-C port (through an OTG adapter or Y-cable),
+//                        as pico_shared builds this config by default and as
+//                        pico-doom and pico-duke3D do. PLL_USB stays at 48 MHz
+//                        for it, and clk_hstx runs from clk_sys (dx_boot.c).
 //
 
 #define HW_CONFIG 2		// also selects nespad.cpp's PIO program (separate CLK/LAT per port)
@@ -87,12 +90,13 @@
 #define NES_PIN_DATA_1 10
 #define NES_PIN_LAT_1 11
 #define NES_PIO_1 pio1
+// An original SNES Mouse in either port. Each read clocks 32 bits instead of 18
+// (about 390 us instead of 220 us), which dx_nespad.cpp collects on the next tick.
+#define NESPAD_SNES_MOUSE 1
 
-// --- USB host on Pico-PIO-USB -----------------------------------------------
-// Also selects the clock path that retasks PLL_USB as the 126 MHz clk_hstx
-// source (dx_boot.c): the native USB controller is unused.
-#define HAS_USBPIO
-#define PIN_USB_HOST_DP (20u)
-#define PIN_USB_HOST_DM (21u)
+// --- USB host: the native controller (no HAS_USBPIO, see above) ---------------
+// The PicoNES PCB has no USB socket of its own: USB devices go on the module's
+// USB-C port. Pico-PIO-USB on GPIO 20/21 (pico_shared's -u build of this
+// config) would need HAS_USBPIO and PIN_USB_HOST_DP/DM (20u/21u) here.
 
 #endif // DX_ADAFRUITDVISD_CFLAGS_H

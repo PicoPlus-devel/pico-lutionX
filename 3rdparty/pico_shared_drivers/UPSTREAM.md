@@ -8,3 +8,10 @@ pico_shared (https://github.com/fhoedemakers/pico_shared). Local changes are mar
 
 nespad/ (nespad.h, nespad.cpp, nespad.pio) was re-copied from pico_shared itself at commit a7cc387;
 its one local change is nespad_read_ready().
+
+pico-lutionX: nespad/ re-copied from pico_shared at commit fb9ad91 (SNES Mouse), with
+nespad_read_ready() applied again. usb_hid/: the stick clicks of XInput, DualShock 4 and
+DualSense pads (Button::LSTICK, RSTICK) and their PS button as Select+Start; keyboards in
+boot protocol are read as boot reports (processKeyboardReport) instead of through their
+report descriptor, which dropped every report of keyboards with report IDs. Also wrong in
+pico_shared.

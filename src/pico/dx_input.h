@@ -49,9 +49,14 @@ void dx_usb_flash_end(dx_irq_state_t st);
 
 // dx_nespad.cpp: the NES/SNES controller ports on boards that have them (NES_PIN_CLK in
 // the board header); no-ops elsewhere. dx_nespad_buttons runs in the USB timer
-// interrupt and returns io::GamePadState::Button bits.
+// interrupt and returns io::GamePadState::Button bits. A SNES Mouse in a port:
+// dx_nespad_mouse_buttons returns its buttons as of the last dx_nespad_buttons (bit 0
+// left, bit 1 right); dx_nespad_mouse_motion adds its motion since the last call, in
+// cursor pixels, to *dx and *dy (call it with interrupts disabled).
 void dx_nespad_init(void);
 uint32_t dx_nespad_buttons(void);
+uint8_t dx_nespad_mouse_buttons(void);
+void dx_nespad_mouse_motion(int *dx, int *dy);
 
 // dx_wiipad.cpp: the Wii extension pad on boards that have one (WII_PIN_SDA in the board
 // header); no-ops elsewhere. Init before the audio codec is set up; read in thread context.

@@ -129,8 +129,9 @@ Details of the cache:
   the PSRAM heap runs out. `dx_fcache_get_stats` counts, among others, the evictions of
   entries used in the last three level loads (`recent_evictions`), which measure thrash.
 
-Flash writes run from SRAM with every interrupt masked except the USB frame interrupt
-(`src/pico/dx_flash.c`, `dx_usb_frame.c`). Core1 keeps scanning out from SRAM, and its
+Flash writes run from SRAM with every interrupt masked except the PIO-USB frame
+interrupt (`src/pico/dx_flash.c`, `dx_usb_frame.c`); with the native USB controller,
+which sends its frames by itself, every interrupt is masked. Core1 keeps scanning out from SRAM, and its
 audio pump is held off meanwhile. Every erase and write is checked against the cache
 region first: below it lies the firmware, and an address past the chip's end wraps round
 onto the firmware. A write outside the region stops the game with an error message. The
@@ -215,11 +216,45 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 
 ## Input
 
-- **Sampling:** the USB host runs on Pico-PIO-USB from a 4 ms timer interrupt. Changes of
+- **USB host:** Pico-PIO-USB on the Fruit Jam (`HAS_USBPIO`), where PLL_USB is free and
+  is retasked as the 126 MHz HSTX clock (`dx_boot.c`). On the Pico Plus 2 board the
+  native controller is the host, on the module's USB-C port as in pico_shared, pico-doom
+  and pico-duke3D; it needs PLL_USB at 48 MHz, so the HSTX clock comes from clk_sys.
+- **SDK and TinyUSB version:** the port is built with pico-sdk 2.2.0 and the TinyUSB it
+  carries (0.18.0, commit 86ad6e56). A hub with a keyboard and mouse on the native
+  controller was reliable with TinyUSB master of 2025-08-07 (5fb3c0996), whose driver for
+  the native controller is that of 0.18.0 (it also resets EPX when a device is unplugged
+  during a transfer); its host stack and hub driver are newer. With master of May 2026,
+  whose driver for the native controller was rewritten, devices behind a hub were often
+  lost or not found: status stages timed out, and the driver panicked
+  (`buf_ctrl … already available` on the retry of a control transfer, `Data Seq Error`).
+  `dx_usb.cpp` warns at build time when TinyUSB is newer than 0.18.0 on a board with the
+  native controller. The vendored XInput driver builds with either version (`open()`
+  returns `bool` before TinyUSB commit ef018e364, the descriptor length after it).
+  pico-sdk 2.3.1 does not configure: it splits `memmap_default.ld` into included files,
+  which `cmake/psram_linker.cmake` does not handle yet.
+- **USB log:** `-DDX_USB_LOG=ON` (for example
+  `BUILD=build_usblog ./adafruitdvisd-build.sh -DDX_USB_LOG=ON`) builds TinyUSB with its
+  host log (`CFG_TUSB_DEBUG` 2) on the UART: enumeration, hub ports and every transfer.
+  For diagnosing devices only, since printing waits for the UART.
+- **Sampling:** the USB host is run from a 4 ms timer interrupt. Changes of
   keys, mouse buttons and pad buttons are recorded in a ring (`src/pico/dx_usb.cpp`) and
   turned into SDL events in thread context (`dx_input.cpp`).
 - **Gamepads:** USB pads and the NES/SNES ports are merged into SDL joystick 0. The engine
-  is told the button numbers with the `JOY_*` definitions in `cmake/dx_engine.cmake`.
+  is told the button numbers with the `JOY_*` definitions in `cmake/dx_engine.cmake`, and
+  its default padmapper layout (`InitPadmapActions`) is used unchanged. The stick clicks
+  of XInput, DualShock 4 and DualSense pads are reported as `Button::LSTICK`/`RSTICK`
+  (local change in `usb_hid`), their PS button as Select+Start, like XInput's Guide.
+- **NES pads:** two buttons cannot reach the padmapper's actions, so `dx_nespad.cpp`
+  translates a NES pad: B is the top face button, and Select is a shift key that turns
+  A, B, Up and Down into the left and bottom face buttons and L and R; with Start held, A
+  and B are the bottom and left face buttons of the engine's Start menu. The main menu
+  screens select with the top face button as well (engine patch in
+  `controls/menu_controls.cpp`).
+- **SNES Mouse:** with `NESPAD_SNES_MOUSE` (board header) the nespad driver clocks 32 bits
+  per read and reports a mouse in either port through `nespad_mouse[]`. `dx_usb.cpp`
+  merges its buttons with a USB mouse's; its motion, 4 cursor pixels per count, is added
+  in `dx_input_mouse`.
 - **Wii pad (Fruit Jam):** read in thread context every 10 ms (`dx_wiipad.cpp`, after
   pico-duke3D's), because it shares the I2C bus with the TLV320 codec. It is brought up
   before the codec.
