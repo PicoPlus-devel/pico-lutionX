@@ -1085,6 +1085,9 @@ void PlaySfxLoc(_sfx_id psfx, Point position, bool randomizeByCategory = true);
 void sound_stop();
 void sound_update();
 void effects_cleanup_sfx();
+#ifdef DEVILUTIONX_PICO
+void effects_release_game_sfx(); // pico-lutionX
+#endif
 void sound_init();
 void ui_sound_init();
 void effects_play_sound(_sfx_id);

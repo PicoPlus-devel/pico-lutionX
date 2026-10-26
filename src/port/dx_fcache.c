@@ -9,9 +9,23 @@
 // remains in it. The directory is mirrored in RAM (PSRAM: this file is part of the engine
 // library); the page maps are rebuilt from it at boot.
 //
+// Placement and eviction (see allocate): entries up to 128 KB (sound effects, item and object
+// sprites) fill the data area from the top, larger ones (tiles, player and monster
+// animations) from the bottom. Each takes free room or room held by data unused for more
+// than eight level loads, whichever lies nearest its end; only when there is neither,
+// data used more recently is evicted, the oldest first (in a few tiers of age). Entries in
+// use for a whole level or game so tend to gather at both ends, keeping the free and
+// evictable room between them together for the next large entry. An eviction removes the
+// entries in one window of the needed size, so it never leaves scattered holes.
+//
+// The directory is written after a level load when entries were stored or removed. A
+// level load that only uses entries changes their age stamps alone; those are written
+// with the next change, or after FC_STAMP_LEVELS level loads.
+//
 // Differences from pico-quake2: entries are protected from eviction by reference counts
 // (the engine holds sprite data across levels), keys are strings of up to 59 characters
-// (longer keys are shortened with a hash), and there is a single kind of entry.
+// (longer keys are shortened with a hash), there is a single kind of entry, and the
+// placement and eviction above.
 
 #include "dx_fcache.h"
 
@@ -20,13 +34,21 @@
 #include <string.h>
 
 #define FC_MAGIC (('C' << 24) | ('F' << 16) | ('X' << 8) | 'D')
-#define FC_VERSION 1
+#define FC_VERSION 2 // 2: placement from both ends (version 1 caches are discarded)
 #define FC_NAMELEN 60
 #define FC_SLOT_BYTES (128 * 1024)
 #define FC_MAX_ENTRIES 1600 // header + entries fit one 128 KB slot
 #define FC_DATA_START (2 * FC_SLOT_BYTES)
 #define FC_MAX_PAGES (16 * 1024 * 1024 / DX_FC_PAGE)
 #define FC_SECTOR_PAGES (DX_FC_SECTOR / DX_FC_PAGE)
+#define FC_MAX_SECTORS (FC_MAX_PAGES / FC_SECTOR_PAGES)
+#define FC_STAMP_LEVELS 8 // level loads after which unchanged entries' age stamps are written
+
+// Entries up to FC_SMALL_PAGES fill the data area from the top, larger ones from the bottom.
+#define FC_SMALL_PAGES (128 * 1024 / DX_FC_PAGE)
+// Data unused for more than eight level loads (entry_tier 3) is evicted as readily as free
+// room is used.
+#define FC_OLD_TIER 3
 
 typedef unsigned char byte;
 
@@ -61,13 +83,14 @@ static fc_entry_t dir[FC_MAX_ENTRIES];
 static unsigned short refs[FC_MAX_ENTRIES]; // references held by the engine (RAM only)
 static int numentries;
 static int active_slot;
-static int dirty;
+static int dirty;        // entries stored or removed since the last commit
+static int stamps_dirty; // only age stamps changed since the last commit
 static unsigned cur_seq;
 static unsigned data_pages;
 static byte page_used[FC_MAX_PAGES / 8];  // holds live data
 static byte page_blank[FC_MAX_PAGES / 8]; // erased, can be programmed as is
-static byte sector_blocked[FC_MAX_PAGES / FC_SECTOR_PAGES];
-static byte sector_cost[FC_MAX_PAGES / FC_SECTOR_PAGES];
+static byte sector_live[FC_MAX_SECTORS];  // pages with live data per sector
+static unsigned short by_offset[FC_MAX_ENTRIES]; // evict_window: live entries in address order
 static dx_fcache_stats_t stats;
 
 /*
@@ -117,70 +140,62 @@ static unsigned page_of(unsigned offset)
 	return (offset - FC_DATA_START) / DX_FC_PAGE;
 }
 
+static unsigned pages_of(unsigned length)
+{
+	return (length + DX_FC_PAGE - 1) / DX_FC_PAGE;
+}
+
 static void mark_pages(unsigned offset, unsigned length, int used)
 {
 	unsigned p = page_of(offset);
-	unsigned n = (length + DX_FC_PAGE - 1) / DX_FC_PAGE;
+	unsigned n = pages_of(length);
 
 	for (; n--; p++) {
 		if (used) {
-			BIT_SET(page_used, p);
+			if (!BIT_GET(page_used, p)) {
+				BIT_SET(page_used, p);
+				sector_live[p / FC_SECTOR_PAGES]++;
+			}
 			BIT_CLR(page_blank, p);
-		} else {
+		} else if (BIT_GET(page_used, p)) {
 			BIT_CLR(page_used, p);
+			sector_live[p / FC_SECTOR_PAGES]--;
 		}
 	}
 }
 
 static int sector_has_live(unsigned page)
 {
-	unsigned first = page - page % FC_SECTOR_PAGES;
-
-	for (unsigned i = 0; i < FC_SECTOR_PAGES; i++)
-		if (BIT_GET(page_used, first + i))
-			return 1;
-	return 0;
+	return sector_live[page / FC_SECTOR_PAGES] != 0;
 }
 
 // A page can take new data if it is free and either still erased, or in a sector with
 // nothing live in it (which can then be erased).
-static int page_available(unsigned p, int blank_only)
+static int page_available(unsigned p)
 {
 	if (BIT_GET(page_used, p))
 		return 0;
-	if (BIT_GET(page_blank, p))
-		return 1;
-	return !blank_only && !sector_has_live(p);
+	return BIT_GET(page_blank, p) || !sector_has_live(p);
 }
 
-// Placement keeps large free runs together. Small entries go to the highest run of
-// available pages that fits, at its end; larger ones to the smallest run that fits, at its
-// start. Otherwise the small entries that stay in use for a whole game (the sound effects)
-// end up scattered over the region, and a large entry (a monster animation of up to 1 MB)
-// finds no window free of them although most of the region could be evicted.
-#define FC_SMALL_PAGES (128 * 1024 / DX_FC_PAGE)
-
-// Returns the first page of the place for n pages, or -1.
-static int best_fit(unsigned n, int blank_only)
+// Returns the first page of a place for n pages, or -1: with high, the highest run of
+// available pages that fits, at its end; else the lowest, at its start.
+static int best_fit(unsigned n, int high)
 {
-	const int small = n <= FC_SMALL_PAGES;
-	unsigned run_start = 0, run = 0, best_len = 0xffffffff;
+	unsigned run_start = 0, run = 0;
 	int best = -1;
 
 	for (unsigned p = 0; p <= data_pages; p++) {
-		if (p < data_pages && page_available(p, blank_only)) {
+		if (p < data_pages && page_available(p)) {
 			if (!run)
 				run_start = p;
 			run++;
 			continue;
 		}
 		if (run >= n) {
-			if (small) {
-				best = (int)(run_start + run - n); // the last fitting run is the highest
-			} else if (run < best_len) {
-				best = (int)run_start;
-				best_len = run;
-			}
+			best = (int)(high ? run_start + run - n : run_start);
+			if (!high)
+				break; // the first fitting run is the lowest
 		}
 		run = 0;
 	}
@@ -219,6 +234,7 @@ static void prepare_run(unsigned first, unsigned n)
 static void rebuild_page_maps(void)
 {
 	memset(page_used, 0, sizeof(page_used));
+	memset(sector_live, 0, sizeof(sector_live));
 	stats.used_bytes = 0;
 	for (int i = 0; i < numentries; i++) {
 		if (!dir[i].offset)
@@ -238,6 +254,16 @@ static void rebuild_page_maps(void)
 		if (i == DX_FC_PAGE / 4)
 			BIT_SET(page_blank, p);
 	}
+}
+
+// How long ago an entry was used, in tiers: 0 in this level load, 1 in the two before it, 2
+// in the six before those, 3 earlier.
+static unsigned entry_tier(int i)
+{
+	if (dir[i].last_seq >= cur_seq)
+		return 0;
+	const unsigned age = cur_seq - dir[i].last_seq;
+	return age <= 2 ? 1 : age <= 8 ? 2 : 3;
 }
 
 /*
@@ -345,7 +371,7 @@ static void touch(int i)
 {
 	if (dir[i].last_seq != cur_seq) {
 		dir[i].last_seq = cur_seq;
-		dirty = 1;
+		stamps_dirty = 1;
 	}
 }
 
@@ -362,7 +388,16 @@ static int is_protected(int i)
 	return refs[i] != 0;
 }
 
-// Evicts the least recently used entry nothing refers to.
+static void evict(int i)
+{
+	if (entry_tier(i) <= 1)
+		stats.recent_evictions++;
+	stats.evictions++;
+	remove_entry(i);
+}
+
+// Evicts one entry nothing refers to (when the directory is full): the oldest, the
+// smallest of those.
 static int evict_one(void)
 {
 	int best = -1;
@@ -370,73 +405,83 @@ static int evict_one(void)
 	for (int i = 0; i < numentries; i++) {
 		if (!dir[i].offset || is_protected(i))
 			continue;
-		if (best < 0 || dir[i].last_seq < dir[best].last_seq
-		    || (dir[i].last_seq == dir[best].last_seq && dir[i].length > dir[best].length))
+		if (best < 0 || entry_tier(i) > entry_tier(best)
+		    || (entry_tier(i) == entry_tier(best)
+		        && (dir[i].last_seq < dir[best].last_seq
+		            || (dir[i].last_seq == dir[best].last_seq && dir[i].length < dir[best].length))))
 			best = i;
 	}
 	if (best < 0)
 		return 0;
-	remove_entry(best);
-	stats.evictions++;
+	evict(best);
 	return 1;
 }
 
-// When no run of free pages is long enough, evicts the entries in one sector-aligned
-// window of the needed size: the window holding the fewest evictable entries, the
-// oldest preferred, and none in use. Evicting the oldest entries one by one would leave
-// scattered holes, none of them large enough.
-static int evict_window(unsigned pages)
+static int compare_offset(const void *a, const void *b)
 {
-	unsigned nsect = data_pages / FC_SECTOR_PAGES;
-	unsigned need = (pages + FC_SECTOR_PAGES - 1) / FC_SECTOR_PAGES;
-	unsigned cost = 0, best_cost = 0xffffffff, blocked = 0;
-	int best = -1;
+	const unsigned oa = dir[*(const unsigned short *)a].offset, ob = dir[*(const unsigned short *)b].offset;
 
+	return oa < ob ? -1 : oa > ob;
+}
+
+typedef struct {
+	int sector;   // first sector of the window, -1: none
+	unsigned a, b; // the entries in it: by_offset[a..b)
+} fc_window_t;
+
+// For every tier t, the window of need sectors that holds no entry in use and no entry
+// younger than tier t, but at least one entry (an empty window is free room, which
+// best_fit finds): the highest such window with high, else the lowest.
+static void find_windows(unsigned need, int high, fc_window_t win[4])
+{
+	const unsigned nsect = data_pages / FC_SECTOR_PAGES;
+	unsigned m = 0;
+
+	for (int t = 0; t < 4; t++)
+		win[t].sector = -1;
 	if (need > nsect)
-		return 0;
-	memset(sector_blocked, 0, nsect);
-	memset(sector_cost, 0, nsect);
-	for (int i = 0; i < numentries; i++) {
-		if (!dir[i].offset)
-			continue;
-		unsigned first = page_of(dir[i].offset);
-		unsigned last = first + (dir[i].length + DX_FC_PAGE - 1) / DX_FC_PAGE - 1;
-		// entries used in this level weigh more, so older ones go first
-		unsigned weight = dir[i].last_seq == cur_seq ? 8 : 1;
-		for (unsigned s = first / FC_SECTOR_PAGES; s <= last / FC_SECTOR_PAGES; s++) {
-			if (is_protected(i))
-				sector_blocked[s] = 1;
-			else if (sector_cost[s] + weight < 255)
-				sector_cost[s] += weight;
-		}
-	}
+		return;
 
-	for (unsigned s = 0; s < nsect; s++) {
-		cost += sector_cost[s];
-		blocked += sector_blocked[s];
-		if (s >= need) {
-			cost -= sector_cost[s - need];
-			blocked -= sector_blocked[s - need];
-		}
-		if (s + 1 >= need && !blocked && cost < best_cost) {
-			best_cost = cost;
-			best = (int)(s + 1 - need);
-		}
-	}
-	if (best < 0 || !best_cost)
-		return 0; // nothing to evict would help
+	// live entries in address order; they do not overlap, so the entries touching a window
+	// are one run of this list, and both ends of the run only move forward with the window
+	for (int i = 0; i < numentries; i++)
+		if (dir[i].offset)
+			by_offset[m++] = (unsigned short)i;
+	qsort(by_offset, m, sizeof(by_offset[0]), compare_offset);
 
-	for (int i = 0; i < numentries; i++) {
-		if (!dir[i].offset)
+	unsigned a = 0, b = 0; // entries [a, b) touch the window
+	unsigned held = 0, tiers[4] = { 0, 0, 0, 0 };
+
+	for (unsigned s = 0; s + need <= nsect; s++) {
+		const unsigned last = s + need - 1;
+
+		while (b < m && page_of(dir[by_offset[b]].offset) / FC_SECTOR_PAGES <= last) {
+			const int i = by_offset[b++];
+			held += is_protected(i);
+			tiers[entry_tier(i)]++;
+		}
+		while (a < b) {
+			const int i = by_offset[a];
+			if ((page_of(dir[i].offset) + pages_of(dir[i].length) - 1) / FC_SECTOR_PAGES >= s)
+				break;
+			held -= is_protected(i);
+			tiers[entry_tier(i)]--;
+			a++;
+		}
+		if (held || a == b)
 			continue;
-		unsigned first = page_of(dir[i].offset) / FC_SECTOR_PAGES;
-		unsigned last = (page_of(dir[i].offset) + (dir[i].length + DX_FC_PAGE - 1) / DX_FC_PAGE - 1) / FC_SECTOR_PAGES;
-		if (last >= (unsigned)best && first < (unsigned)best + need) {
-			remove_entry(i);
-			stats.evictions++;
+
+		unsigned youngest = 0;
+		while (!tiers[youngest])
+			youngest++;
+		for (unsigned t = 0; t <= youngest; t++) {
+			if (high || win[t].sector < 0) {
+				win[t].sector = (int)s;
+				win[t].a = a;
+				win[t].b = b;
+			}
 		}
 	}
-	return 1;
 }
 
 // Finds room for len bytes and prepares it; returns the directory slot or -1.
@@ -467,20 +512,32 @@ static int allocate(const char *name, unsigned len, unsigned *offset_out)
 				break;
 	}
 
-	// a contiguous run of pages: preferably still erased, else in sectors that can be
-	// erased, else evict
-	pages = (len + DX_FC_PAGE - 1) / DX_FC_PAGE;
-	for (;;) {
-		first = best_fit(pages, 1);
-		if (first < 0)
-			first = best_fit(pages, 0);
-		if (first >= 0)
-			break;
-		if (!evict_window(pages)) {
-			printf("dx_fcache: no room for %s (%u KB)\n", name, len / 1024);
-			stats.store_failures++;
-			return -1;
-		}
+	// a contiguous run of pages: small entries from the top, large ones from the bottom, in
+	// free room or room held by old data, whichever is nearer that end; else by evicting
+	// younger data, the oldest tier first
+	pages = pages_of(len);
+	const int small = pages <= FC_SMALL_PAGES;
+	const unsigned need = (pages + FC_SECTOR_PAGES - 1) / FC_SECTOR_PAGES;
+	fc_window_t win[4];
+
+	first = best_fit(pages, small);
+	find_windows(need, small, win);
+	for (int t = FC_OLD_TIER; t >= 0; t--) {
+		if (win[t].sector < 0)
+			continue;
+		// a small entry goes to the top of the window, a large one to its bottom
+		const int wfirst = small ? (win[t].sector + (int)need) * FC_SECTOR_PAGES - (int)pages : win[t].sector * FC_SECTOR_PAGES;
+		if (first >= 0 && (t < FC_OLD_TIER || (small ? first >= wfirst : first <= wfirst)))
+			break; // free room, nearer the end than old data, or the only choice without evicting younger data
+		for (unsigned k = win[t].a; k < win[t].b; k++)
+			evict(by_offset[k]);
+		first = wfirst;
+		break;
+	}
+	if (first < 0) {
+		printf("dx_fcache: no room for %s (%u KB)\n", name, len / 1024);
+		stats.store_failures++;
+		return -1;
 	}
 
 	prepare_run((unsigned)first, pages);
@@ -689,7 +746,7 @@ void dx_fcache_begin_level(void)
 	if (!ready())
 		return;
 	cur_seq++;
-	dirty = 1;
+	stamps_dirty = 1;
 }
 
 void dx_fcache_commit(void)
@@ -698,7 +755,11 @@ void dx_fcache_commit(void)
 	unsigned bytes;
 	fc_entry_t *packed;
 
-	if (!ready() || !dirty)
+	if (!ready())
+		return;
+	// age stamps alone wait for the next change, or FC_STAMP_LEVELS level loads; those of a
+	// session without a change are not kept (the entries look as old as they were)
+	if (!dirty && !(stamps_dirty && cur_seq - hdr.seq >= FC_STAMP_LEVELS))
 		return;
 
 	// drop unused slots at the end of the table (none of them can be referenced)
@@ -741,6 +802,7 @@ void dx_fcache_commit(void)
 
 	active_slot = slot;
 	dirty = 0;
+	stamps_dirty = 0;
 }
 
 void dx_fcache_print_usage(void)
@@ -800,7 +862,7 @@ void dx_fcache_print_map(void)
 			if (!dir[i].offset)
 				continue;
 			const unsigned first = page_of(dir[i].offset);
-			const unsigned last = first + (dir[i].length + DX_FC_PAGE - 1) / DX_FC_PAGE;
+			const unsigned last = first + pages_of(dir[i].length);
 			if (last <= c * CellPages || first >= (c + 1) * CellPages)
 				continue;
 			if (refs[i]) {

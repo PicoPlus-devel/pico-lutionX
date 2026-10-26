@@ -5,6 +5,7 @@
  */
 
 #include <cstdint>
+#include "utils/ui_fwd.h" // pico-lutionX
 
 #include <SDL.h>
 
@@ -109,6 +110,15 @@ Cutscenes PickCutscene(interface_mode uMsg)
 	}
 }
 
+// pico-lutionX: on a screen no wider than 640 pixels the 640x480 cutscene image covers the
+// widescreen art behind it, which would only cost loading time and flash cache space.
+OptionalOwnedClxSpriteList LoadCutsceneWidescreen(const char *path) // pico-lutionX
+{ // pico-lutionX
+	if (GetScreenWidth() <= 640) // pico-lutionX
+		return std::nullopt; // pico-lutionX
+	return LoadOptionalClx(path); // pico-lutionX
+} // pico-lutionX
+
 void LoadCutsceneBackground(interface_mode uMsg)
 {
 	const char *celPath;
@@ -116,67 +126,67 @@ void LoadCutsceneBackground(interface_mode uMsg)
 
 	switch (PickCutscene(uMsg)) {
 	case CutStart:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cutstartw.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cutstartw.clx"); // pico-lutionX
 		celPath = "gendata\\cutstart";
 		palPath = "gendata\\cutstart.pal";
 		progress_id = 1;
 		break;
 	case CutTown:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cutttw.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cutttw.clx"); // pico-lutionX
 		celPath = "gendata\\cuttt";
 		palPath = "gendata\\cuttt.pal";
 		progress_id = 1;
 		break;
 	case CutLevel1:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cutl1dw.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cutl1dw.clx"); // pico-lutionX
 		celPath = "gendata\\cutl1d";
 		palPath = "gendata\\cutl1d.pal";
 		progress_id = 0;
 		break;
 	case CutLevel2:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cut2w.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cut2w.clx"); // pico-lutionX
 		celPath = "gendata\\cut2";
 		palPath = "gendata\\cut2.pal";
 		progress_id = 2;
 		break;
 	case CutLevel3:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cut3w.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cut3w.clx"); // pico-lutionX
 		celPath = "gendata\\cut3";
 		palPath = "gendata\\cut3.pal";
 		progress_id = 1;
 		break;
 	case CutLevel4:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cut4w.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cut4w.clx"); // pico-lutionX
 		celPath = "gendata\\cut4";
 		palPath = "gendata\\cut4.pal";
 		progress_id = 1;
 		break;
 	case CutLevel5:
-		ArtCutsceneWidescreen = LoadOptionalClx("nlevels\\cutl5w.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("nlevels\\cutl5w.clx"); // pico-lutionX
 		celPath = "nlevels\\cutl5";
 		palPath = "nlevels\\cutl5.pal";
 		progress_id = 1;
 		break;
 	case CutLevel6:
-		ArtCutsceneWidescreen = LoadOptionalClx("nlevels\\cutl6w.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("nlevels\\cutl6w.clx"); // pico-lutionX
 		celPath = "nlevels\\cutl6";
 		palPath = "nlevels\\cutl6.pal";
 		progress_id = 1;
 		break;
 	case CutPortal:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cutportlw.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cutportlw.clx"); // pico-lutionX
 		celPath = "gendata\\cutportl";
 		palPath = "gendata\\cutportl.pal";
 		progress_id = 1;
 		break;
 	case CutPortalRed:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cutportrw.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cutportrw.clx"); // pico-lutionX
 		celPath = "gendata\\cutportr";
 		palPath = "gendata\\cutportr.pal";
 		progress_id = 1;
 		break;
 	case CutGate:
-		ArtCutsceneWidescreen = LoadOptionalClx("gendata\\cutgatew.clx");
+		ArtCutsceneWidescreen = LoadCutsceneWidescreen("gendata\\cutgatew.clx"); // pico-lutionX
 		celPath = "gendata\\cutgate";
 		palPath = "gendata\\cutgate.pal";
 		progress_id = 1;

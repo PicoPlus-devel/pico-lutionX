@@ -72,7 +72,8 @@ Not yet verified on a board:
 With the full game, the first visit to a level takes longer than later ones, because its
 graphics and sounds are written to flash. Its sound effects are stored in flash as 4-bit
 ADPCM, at half the size of the original 8-bit sound; a few of them sound slightly harsher
-than on a PC. Network play and Hellfire are not supported.
+than on a PC. Level 16 can run out of memory after long play (see "When something goes
+wrong"). Network play and Hellfire are not supported.
 
 ## Boards
 
@@ -115,9 +116,30 @@ on the bootloader's SD card instead of step 4; the game data stays in
 
 The board copies the game's graphics and sounds into its flash memory the first time
 they are needed, and uses them from there afterwards, also after a restart. The first
-time the main menu, a game and each new area load therefore take noticeably longer
-(about 10 to 20 seconds); the board LED blinks while it writes. A different `.mpq` file
-makes the board discard the copies and start again.
+time a game and each new area load therefore take noticeably longer (about 10 to 20
+seconds); the board LED blinks while it writes. The main menu's pictures are not copied;
+they are read from the SD card each time. When the flash memory is full, the copies used
+least recently make room for new ones, so with the full game an area that has not been
+visited for a while can take longer to load again. A different `.mpq` file makes the
+board discard the copies and start again.
+
+### Flash memory wear
+
+The copies are kept in the upper 13 MB of the board's 16 MB flash memory. The game never
+writes to the part that holds the firmware or pico-bootLoader. Flash memory wears with
+every erase; the chips on these boards are rated for at least 100,000 erase cycles per
+4 KB sector. Measured in the test program, per trip from the town to a dungeon level:
+
+- With the shareware data, once the copies have been made, almost nothing is written
+  (less than 0.1 MB per trip).
+- With the full game, the 13 MB cannot hold all of the game's graphics, so moving between
+  parts of the dungeon replaces copies: 2 to 5 MB per trip, and the most-erased sector is
+  erased up to about twice per trip. At that rate the rated endurance is reached after
+  roughly 50,000 such trips.
+
+The flash writing is therefore no practical risk to the board. Copies that are damaged,
+or overwritten by another program that uses the same part of the flash (for example
+under pico-bootLoader), are detected by a checksum and copied again.
 
 ## Controls
 
@@ -156,6 +178,15 @@ Games are saved in `roms/devilutionx` as DevilutionX saves them on a PC (`spawn_
 `single_N.sv`), together with `diablo.ini`. The files can be copied to and from
 DevilutionX 1.5.5 on a PC.
 
+Each save file holds one hero. A saved game is chosen in the main menu: Single Player
+lists the heroes by name; select one and choose Load Game. In the game, Load Game in the
+game menu only reloads the current hero; to change hero, choose Quit Game, which restarts
+the board, and select another hero.
+
+For testing, [testsaves/](testsaves/) holds one saved game per dungeon level (heroes
+`Level01` to `Level16`), which can be copied to `roms/devilutionx` to start directly on any
+level.
+
 ## When something goes wrong
 
 Errors that stop the game are shown on the screen. The board also writes a log to its
@@ -172,6 +203,20 @@ help; disconnect the power and connect it again. To restart the game, use Quit G
 game menu or Exit Diablo in the main menu instead of the reset button; both restart the
 board. The cause lies in the board's wiring (see
 [TECHNICAL.md](TECHNICAL.md), "Reset and BOOTSEL on the Pico Plus 2").
+
+**Full game: level 16 stops with an out-of-memory error.** Level 16 needs more memory than
+any other level: Diablo's graphics alone take 3.4 MB, part of them in PSRAM and part in the
+flash memory. After long play in all parts of the dungeon, the graphics kept in flash can
+be spread out so that no large enough space is left, and loading level 16 then stops with
+an out-of-memory message. In the test program this happened only in stress tests that
+jumped between random levels and returned to level 16 often, not when going down the
+dungeon level by level; it has not been tested on a board. Once it happens, entering level
+16 again from the town or another level often fails the same way. Instead, restart the
+board (on the Pico Plus 2 by disconnecting the power, see above) and load a game that was
+saved on level 16 itself: in the test program this loaded level 16 in every attempt on
+caches where entering it from the town failed every time. It is therefore advisable to
+save the game soon after arriving on level 16. See [TECHNICAL.md](TECHNICAL.md), "The full
+game".
 
 ## Building from source
 

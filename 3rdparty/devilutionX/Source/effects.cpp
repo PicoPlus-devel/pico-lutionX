@@ -1155,6 +1155,23 @@ void effects_cleanup_sfx()
 		sfx.pSnd = nullptr;
 }
 
+#ifdef DEVILUTIONX_PICO
+// pico-lutionX: frees the game's sound effects that are not playing (not the UI's), so that
+// their entries in the flash asset cache are not in use while a level loads. About 2 MB of
+// class and other effects otherwise stay in use for the whole game, and on level 16 the
+// cache then had no room left for Diablo's animations. LoadGameLevel loads them again at
+// its end (sound_init); others are loaded when they are played, as upstream does.
+void effects_release_game_sfx()
+{
+	if (!gbSndInited)
+		return;
+	for (auto &sfx : sgSFX) {
+		if (sfx.pSnd != nullptr && (sfx.bFlags & (sfx_STREAM | sfx_UI)) == 0 && !sfx.pSnd->isPlaying())
+			sfx.pSnd = nullptr;
+	}
+}
+#endif
+
 void sound_init()
 {
 	uint8_t mask = sfx_MISC;

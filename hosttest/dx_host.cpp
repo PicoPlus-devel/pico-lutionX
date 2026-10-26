@@ -9,7 +9,8 @@
 //   - DX_MAX_FRAMES=N: print a heap report and exit after N presented frames;
 //   - DX_FCACHE=1: the flash asset cache on an emulated NOR flash region (DX_FCACHE_KB,
 //     default 13312), mapped read-only outside erase/program so that any write into cached
-//     data faults; DX_FCACHE_FILE keeps the region between runs (warm cache);
+//     data faults; DX_FCACHE_FILE keeps the region between runs (warm cache), and the
+//     erase count of every 4 KB sector in <DX_FCACHE_FILE>.wear;
 //   - audio: the mixer (src/aulib) is pulled at 22050 Hz as time passes; DX_AUDIO_WAV=file
 //     writes what it produced.
 //
@@ -18,6 +19,7 @@
 //   dx_host --timedemo-test <fixture-dir> <data-dir>
 //       replay the fixture headless, exactly as upstream's test/timedemo_test.cpp, and
 //       compare the resulting hero with the reference (exit 0 = same).
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -265,7 +267,14 @@ unsigned char *FlashBase;
 unsigned FlashSize;
 unsigned FlashErased, FlashProgrammed;
 double FlashSeconds; // estimated time the board would spend erasing and programming
+std::vector<uint32_t> FlashWear; // erases per 4 KB sector, over all runs on one DX_FCACHE_FILE
 dx_fcache_flash_t FlashOps;
+
+// The wear counts are kept next to the flash region file.
+std::string FlashWearFile(const char *flashFile)
+{
+	return std::string(flashFile) + ".wear";
+}
 
 void FlashWritable(bool writable)
 {
@@ -287,6 +296,8 @@ void FlashErase(unsigned offset, unsigned len)
 	FlashWritable(true);
 	memset(FlashBase + offset, 0xff, len);
 	FlashWritable(false);
+	for (unsigned s = offset / 4096; s < (offset + len) / 4096; s++)
+		FlashWear[s]++;
 	FlashErased += len;
 	// typical NOR timings: 64 KB block erase 150 ms, 4 KB sector erase 45 ms
 	FlashSeconds += (len / 65536) * 0.150 + ((len % 65536) / 4096) * 0.045;
@@ -324,11 +335,17 @@ void SetupFlash(const std::string &dataDir)
 	FlashSize = kb * 1024;
 	FlashBase = static_cast<unsigned char *>(mmap(nullptr, FlashSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
 	memset(FlashBase, 0xff, FlashSize);
+	FlashWear.assign(FlashSize / 4096, 0);
 	if (const char *file = getenv("DX_FCACHE_FILE")) {
 		if (FILE *f = fopen(file, "rb")) {
 			size_t n = fread(FlashBase, 1, FlashSize, f);
 			fclose(f);
 			fprintf(stderr, "dx_host: flash region loaded from %s (%zu bytes)\n", file, n);
+		}
+		if (FILE *f = fopen(FlashWearFile(file).c_str(), "rb")) {
+			if (fread(FlashWear.data(), sizeof(uint32_t), FlashWear.size(), f) != FlashWear.size())
+				FlashWear.assign(FlashWear.size(), 0);
+			fclose(f);
 		}
 	}
 	FlashWritable(false);
@@ -342,14 +359,35 @@ void ReportFlash()
 		return;
 	dx_fcache_stats_t st;
 	dx_fcache_get_stats(&st);
-	fprintf(stderr, "dx_fcache: %u entries, %u KB used of %u KB, %u hits, %u misses, %u stored, %u failed, %u evicted; "
+	fprintf(stderr, "dx_fcache: %u entries, %u KB used of %u KB, %u hits, %u misses, %u stored, %u failed, %u evicted (%u recent); "
 	                "%u KB erased, %u KB programmed (about %.1f s on the board)\n",
 	    st.entries, st.used_bytes / 1024, st.capacity / 1024, st.hits, st.misses, st.stores, st.store_failures,
-	    st.evictions, FlashErased / 1024, FlashProgrammed / 1024, FlashSeconds);
+	    st.evictions, st.recent_evictions, FlashErased / 1024, FlashProgrammed / 1024, FlashSeconds);
 	dx_fcache_print_usage();
+
+	// the first 256 KB are the cache's two directory slots (src/port/dx_fcache.c)
+	constexpr unsigned DirSectors = 256 * 1024 / 4096;
+	uint32_t dirMax = 0, dataMax = 0;
+	double dataSum = 0;
+	for (size_t s = 0; s < FlashWear.size(); s++) {
+		if (s < DirSectors) {
+			dirMax = std::max(dirMax, FlashWear[s]);
+		} else {
+			dataMax = std::max(dataMax, FlashWear[s]);
+			dataSum += FlashWear[s];
+		}
+	}
+	if (FlashWear.size() > DirSectors)
+		fprintf(stderr, "dx_fcache wear (erases per 4 KB sector, all runs on this region): directory max %u, data max %u mean %.1f\n",
+		    dirMax, dataMax, dataSum / (FlashWear.size() - DirSectors));
+
 	if (const char *file = getenv("DX_FCACHE_FILE")) {
 		if (FILE *f = fopen(file, "wb")) {
 			fwrite(FlashBase, 1, FlashSize, f);
+			fclose(f);
+		}
+		if (FILE *f = fopen(FlashWearFile(file).c_str(), "wb")) {
+			fwrite(FlashWear.data(), sizeof(uint32_t), FlashWear.size(), f);
 			fclose(f);
 		}
 	}

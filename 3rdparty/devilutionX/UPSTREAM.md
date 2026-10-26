@@ -73,6 +73,12 @@ Flash asset cache (`src/port/dx_fcache.hpp`):
 - `engine/sound.cpp` (`LoadAudioFile`): sound effects are kept in the cache and played
   from there, converted into IMA ADPCM WAV files on the way in (MP3 in `spawn.mpq`, 8-bit
   PCM WAV in `DIABDAT.MPQ`).
+- `effects.cpp`, `effects.h` (`effects_release_game_sfx`), `diablo.cpp` (`LoadGameLevel`):
+  the game's sound effects that are not playing are freed at the start of a level load and
+  loaded again (`sound_init`) at its end, so that their cache entries, about 2 MB, are not
+  in use while the level's graphics look for room in the cache.
+- `interfac.cpp` (`LoadCutsceneBackground`): the widescreen loading-screen art is not
+  loaded on a screen no wider than 640 pixels, where the 640×480 picture covers it.
 
 Upstream bug:
 

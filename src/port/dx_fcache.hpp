@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include "dx_fcache.h"
@@ -48,6 +49,16 @@ inline bool DxCacheActive()
 	return dx_fcache_enabled() && DxCacheSuspendDepth() == 0;
 }
 
+// The main menu's art (ui_art\) is not cached: the menus run while the game's memory is
+// free, and in a long game the cache would evict it and write it again at the next start.
+inline bool DxCacheActive(const char *key)
+{
+	const char *path = std::strchr(key, ':');
+	if (path != nullptr && std::strncmp(path + 1, "ui_art", 6) == 0 && (path[7] == '\\' || path[7] == '/'))
+		return false;
+	return DxCacheActive();
+}
+
 // "<kind>:<path>:<param>"
 inline void DxCacheKey(char *key, const char *kind, const char *path, unsigned param)
 {
@@ -58,7 +69,7 @@ inline void DxCacheKey(char *key, const char *kind, const char *path, unsigned p
 template <typename T = uint8_t>
 std::unique_ptr<T[]> DxCacheFind(const char *key, size_t *size)
 {
-	if (!DxCacheActive())
+	if (!DxCacheActive(key))
 		return nullptr;
 	unsigned length;
 	const void *p = dx_fcache_find(key, &length);
@@ -73,7 +84,7 @@ std::unique_ptr<T[]> DxCacheFind(const char *key, size_t *size)
 template <typename T = uint8_t>
 std::unique_ptr<T[]> DxCacheStore(const char *key, const void *data, size_t size)
 {
-	if (!DxCacheActive())
+	if (!DxCacheActive(key))
 		return nullptr;
 	const void *p = dx_fcache_store(key, data, static_cast<unsigned>(size));
 	if (p == nullptr)
@@ -131,7 +142,7 @@ std::unique_ptr<T[]> DxLoadFileCached(const char *path, size_t *sizeOut = nullpt
 	DxCacheKey(key, cacheOnly ? "snd" : "file", path, 0);
 	if (auto cached = DxCacheFind<T>(key, sizeOut))
 		return cached;
-	if (DxCacheActive()) {
+	if (DxCacheActive(key)) {
 		size_t size;
 		AssetHandle handle = OpenAsset(path, size);
 		auto writer = std::make_unique<dx_fcache_writer_t>();

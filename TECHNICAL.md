@@ -95,22 +95,39 @@ used in place through the XIP window:
 Details of the cache:
 
 - **Entries:** each entry is a contiguous run of 256-byte pages with a CRC. The directory
-  is written to one of two alternating 128 KB slots after every level load.
+  is written to one of two alternating 128 KB slots after a level load that stored or
+  removed entries. A level load that only uses entries changes just their age stamps;
+  those are written with the next change, or after eight level loads in one session.
 - **Reference counts:** freeing a pointer into the cache releases the entry (`dx_heap.cpp`
-  passes it on). Entries with references are never evicted; the others go least recently
-  used first.
+  passes it on). Entries with references are never evicted.
 - **Writes in place:** the engine changes some sprites after loading (colour
   translations). Those are stored after the change (monsters), stored under a separate key
   (player class colours), or cloned first (the health bar).
-- **Placement:** entries up to 128 KB go to the highest free run that fits, larger ones
-  to the smallest run that fits, at its start. Otherwise the small entries that stay in use
-  for a whole game (sound effects) end up scattered over the region, and a large one finds
-  no window free of them although most of the region could be evicted.
+- **Placement and eviction:** entries up to 128 KB (sound effects, item and object
+  sprites) fill the region from the top, larger ones (tiles, player and monster
+  animations) from the bottom. Each takes free room or room held by data unused for more
+  than eight level loads, whichever lies nearer its end. Only when there is neither is
+  younger data evicted, the oldest first, in tiers: this level load, the two before it,
+  the six before those. An eviction removes the entries in one window of the needed size,
+  so it leaves no scattered holes. The earlier rule told entries apart only as "used in
+  this level" or "older": on every visit to town the loading-screen art evicted the town's
+  tiles (2.1 MB), which the town load then wrote again (see "Flash wear").
+- **Sound effects during a level load:** about 2 MB of the game's sound effects (those of
+  the hero's class and the general ones) are in use for the whole game. `LoadGameLevel`
+  frees those that are not playing at its start (`effects_release_game_sfx`) and loads
+  them again at its end, so that the level's graphics may evict them when nothing else is
+  left. On level 16 this decides whether Diablo's animations find room in the cache.
+- **Not cached:** the main menu's art (`ui_art\`, `DxCacheActive` in `dx_fcache.hpp`):
+  the menus run while the game's memory is free, and a long game would evict the art and
+  the next start write it again. The widescreen loading-screen art is not loaded at all,
+  because the 640×480 picture covers it on this screen.
 - **Persistence:** the cache survives restarts. A different game data file (`spawn.mpq`
-  or `DIABDAT.MPQ`, identified by its size) discards it.
+  or `DIABDAT.MPQ`, identified by its size) discards it, and so does firmware with a
+  different directory version (version 2 introduced the placement above).
 - **Diagnostics:** `dx_fcache_print_usage` lists the contents by kind (in use and total)
   and `dx_fcache_print_map` draws the region, 64 KB per character. Both are printed when
-  the PSRAM heap runs out.
+  the PSRAM heap runs out. `dx_fcache_get_stats` counts, among others, the evictions of
+  entries used in the last three level loads (`recent_evictions`), which measure thrash.
 
 Flash writes run from SRAM with every interrupt masked except the USB frame interrupt
 (`src/pico/dx_flash.c`, `dx_usb_frame.c`). Core1 keeps scanning out from SRAM, and its
@@ -118,6 +135,31 @@ audio pump is held off meanwhile. Every erase and write is checked against the c
 region first: below it lies the firmware, and an address past the chip's end wraps round
 onto the firmware. A write outside the region stops the game with an error message. The
 test program applies the same check to its emulated flash.
+
+### Flash wear
+
+Measured in the test program (`hosttest/levels.sh warm`, see "The test program") on one
+emulated flash per scenario. A trip is one run: start, a new hero in town, `+goto` to a
+level, so two level loads. The figures are per trip once every listed level has been
+visited; flash time uses typical NOR timings (64 KB block erase 150 ms, page 0.4 ms).
+
+| Scenario | Flash erased | Flash time | Most-erased 4 KB sector |
+|---|---|---|---|
+| Shareware, 100 trips to levels 1–4 | 2.68 → 0.04–0.07 MB | 11.2 → 0.2–0.3 s | 1.6 → 0.03 erases |
+| Full game, in order (1, 1, 2, 2, 1, 2 … 16), 63 trips | 4.25 → 2.0–3.2 MB | 19.8 → 9–14 s | 1.0 → 0.9–1.5 erases |
+| Full game, 200 trips to random levels 1–16 | 5.22 → 3.9–4.4 MB | 24.4 → 18–21 s | 1.5 → 1.7–1.9 erases |
+| Full game, 150 trips to levels 13–16 | 5.29 → 5.1 MB | 24.8 → 23.5 s | 1.0 → 1.6–1.7 erases |
+
+The arrow separates the earlier cache (version 1) from the current one; ranges are two runs
+of the same firmware, which differ because the test program runs on a real-time clock.
+The earlier cache's random and level 13–16 figures are lowered by its failed trips (see
+"The full game"), which write nothing that is kept.
+With the shareware data the cache holds everything after the first visits, and the earlier
+version rewrote the town's tiles and the loading-screen art on every trip. The full game's
+graphics do not fit in 13 MB, so trips between parts of the dungeon replace copies either
+way. The flash is rated for at least 100,000 erase cycles per sector; at two erases per
+trip the most-erased sector reaches that after about 50,000 trips. Directory commits fell
+from two per trip to 0.2 (shareware) and 1.3–2.0 (full game).
 
 ## Video
 
@@ -255,10 +297,18 @@ hosttest/sweep.sh /tmp/dx/data
 NOSAN=1 hosttest/build.sh
 hosttest/levels.sh /path/to/diabdat-data cold
 hosttest/levels.sh /path/to/diabdat-data warm
+
+# flash wear: any sequence of levels on one cache (each run: start, town, the level)
+hosttest/levels.sh /path/to/diabdat-data warm 3 1 16 9 16 2
 ```
 
 Writes into the screen surface without a wait for the frame copy fault (see "Video"),
-and flash writes outside the cache region abort.
+and flash writes outside the cache region abort. With `DX_FCACHE_FILE` the emulated flash
+also counts the erases of every 4 KB sector, kept in `<file>.wear`. `levels.sh` in `warm`
+mode ends with a summary once every listed level has been visited: flash erased, flash
+time on the board (typical NOR timings), directory commits, the most and the average
+erased sector, and evictions of recently used entries per run. `DX_HOST=<binary>` runs
+another build of the test program, for example to compare two cache versions.
 
 Other tools:
 
@@ -266,6 +316,9 @@ Other tools:
   static data, stack frames).
 - `tools/mpqsizes.py` lists what an MPQ contains.
 - `tools/peakheap.c` measures the heap of a stock DevilutionX build.
+- `tools/make_testsaves.sh` makes the saved games in `testsaves/` with the test program:
+  one hero per dungeon level, taken there with debug commands, saved, and loaded again to
+  check it (see [testsaves/README.md](testsaves/README.md)).
 
 ## Reset and BOOTSEL on the Pico Plus 2
 
@@ -308,19 +361,50 @@ were needed beyond the shareware data:
   asset cache"), so the peak is about twice the largest animation (841 KB).
 - **Sound effects:** stored as IMA ADPCM, half their size as 8-bit PCM (see "Sound").
   Before that, a level's effects took 4.6 MB of the cache and were in use all the time.
-- **Cache placement:** small entries are kept apart from large ones, so monster
-  animations of up to 1 MB find room on a cache that is mostly in use.
+- **Cache placement:** small entries fill the cache from the top and large ones from the
+  bottom, and the game's sound effects are released while a level loads, so monster
+  animations of up to 1 MB find room on a cache that is mostly in use (see "The flash
+  asset cache").
 
 Results, with a new hero taken to each level by `+goto`:
 
 | | Levels 1–15 | Level 16 |
 |---|---|---|
-| PSRAM, largest free block after loading | 2.0–4.2 MB | 1.0 MB |
-| Flash cache in use after loading | 11.0–12.9 of 13.0 MB | 12.7 MB |
-| Flash written on a first visit (warm cache) | 0.1–6.5 MB | about 4 MB |
+| PSRAM, largest free block after loading | 2.1–3.9 MB | 2.8 MB |
+| Flash cache in use after loading | 11.1–12.7 of 12.75 MB | 12.6–12.7 MB |
+| Flash written on a first visit (warm cache) | 0.2–3.9 MB | 7.8 MB |
 
-Level 16 holds 8.5 MB of monster graphics, about half in PSRAM and half in flash. A few
-animations find no room in the cache there and are kept in PSRAM instead.
+Level 16 holds 8.5 MB of monster graphics, about half in PSRAM and half in flash. Its first
+visit writes the most, about 45 s of flash work on the board: Diablo's animations, and
+sound effects that made room for them and are written again at the end of the load.
+
+On a cache with a long history of all parts of the dungeon, level 16 can still run out of
+memory: about 8 MB of the cache is then in use at once by graphics stored at different
+times (player and monster animations, tiles), which cannot be moved while in use, and no
+1 MB window is left for the next animation, which then stays in PSRAM until PSRAM runs
+out. In the test program:
+
+| Scenario | Earlier cache | Current cache |
+|---|---|---|
+| In order (63 trips) | no failure | no failure |
+| Levels 13–16 (150 trips) | first failure at trip 57 and 67 | no failure (5 runs) |
+| Random levels 1–16 (200 trips) | first failure at trip 49 | no failure (2 runs) |
+| Random levels 1–16, one trip in five to level 16 (200 trips) | first failure at trip 28 and 58 | first failure at trip 45–102 (4 runs) |
+
+A failed load leaves the cache as it was, so later visits to level 16 fail again until
+trips to other levels have changed the cache. Loading a game saved on level 16 does work on
+such a cache. Tested on two cache states, each saved just before a failing trip:
+
+| After the failure | State 1 | State 2 |
+|---|---|---|
+| New game, town, then level 16 (the failing route) | failed 5 of 5 | failed 3 of 3 |
+| Load a game saved on level 16 | loaded 5 of 5 | loaded 5 of 5 |
+| One trip to level 5, 9, 12 or 14, then load that save | loaded 4 of 4 | — |
+
+Loading the save loads level 16 directly after start-up, with no other level load before
+it in the same session. Why the town load before it leaves too little room was not
+determined. On the board a failed load also leaves its flash writes behind; entries they
+overwrote fail their CRC on the next start and are loaded again.
 
 ## Open items
 
@@ -366,8 +450,10 @@ animations find no room in the cache there and are kept in PSRAM instead.
 - **The full game:** all 16 levels load in the test program with the board's memory
   (`hosttest/levels.sh`, cold and warm), but it has not run on a board. Level 16 is the
   tightest: 8.5 MB of monster graphics (Diablo alone 3.4 MB), half in PSRAM, half in
-  flash, leaving a 1 MB PSRAM block and an almost full cache. A first visit to a deep
-  level writes 3–6 MB to flash. Whether the ADPCM sound effects are acceptable needs
+  flash, and an almost full cache; its first visit writes 7.8 MB to flash. After a long
+  history of all parts of the dungeon it can still run out of memory (see "The full
+  game"); a lasting fix needs less memory on level 16, and a way for the player to clear
+  the cache would allow recovery. Whether the ADPCM sound effects are acceptable needs
   listening on the board.
 - **Licences:** the drivers come from pico_shared (GPL-3.0) and libmpq is
   GPL-2.0-or-later. Neither may be distributed in one firmware with DevilutionX's licence

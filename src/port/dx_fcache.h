@@ -38,6 +38,7 @@ typedef struct {
 typedef struct {
 	unsigned entries, used_bytes, free_bytes, capacity;
 	unsigned hits, misses, stores, store_failures, evictions;
+	unsigned recent_evictions; // of entries used in the last three level loads
 	unsigned bytes_erased, bytes_programmed;
 } dx_fcache_stats_t;
 

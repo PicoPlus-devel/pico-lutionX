@@ -2738,6 +2738,7 @@ void LoadGameLevel(bool firstflag, lvl_entry lvldir)
 	SetRndSeed(glSeedTbl[currlevel]);
 	IncProgress();
 	dx_fcache_begin_level(); // pico-lutionX: flash asset cache
+	effects_release_game_sfx(); // pico-lutionX: not in use in the flash asset cache while the level loads
 	MakeLightTable();
 	SetDungeonMicros();
 	ClearClxDrawCache();
@@ -3014,6 +3015,7 @@ void LoadGameLevel(bool firstflag, lvl_entry lvldir)
 	ResetItemlabelHighlighted(); // level changed => item changed
 	pcursmonst = -1;             // ensure pcurstemp is set to a valid value
 	CheckCursMove();
+	sound_init(); // pico-lutionX: the sound effects released at the start (effects_release_game_sfx)
 	dx_fcache_commit(); // pico-lutionX: flash asset cache directory
 	{ // pico-lutionX: heap report
 		char label[32];
