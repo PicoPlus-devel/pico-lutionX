@@ -3,6 +3,7 @@ hosttest/build/
 hosttest/build-nosan/
 hosttest/dx_host
 hosttest/dx_host_nosan
+hosttest/dx_sdimg
 *.ppm
 __pycache__/
 build/

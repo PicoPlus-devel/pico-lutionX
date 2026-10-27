@@ -8,6 +8,9 @@
 // libmpq seeks around inside the MPQ (up to 517 MB for DIABDAT.MPQ); FatFs would walk the
 // FAT chain from the start of the file on each seek, so read-only opens of large files
 // get a fast-seek cluster map, built once per file and shared by every later open of it.
+//
+// FatFs's calls into the SD driver (tf_card.c) come here first (-Wl,--wrap in
+// CMakeLists.txt), which holds the USB timer off for each transfer (dx_usb_hold).
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -24,10 +27,12 @@
 #include "pico/stdio.h"
 #include "hardware/pio.h"
 #include "ff.h"
+#include "diskio.h"
 #include "tf_card.h"
 
 #include "dx_fatfs_io.h"
 #include "dx_fatal.h"
+#include "dx_input.h"
 #include "dx_platform.h"
 #include "dx_prof.h"
 
@@ -36,6 +41,7 @@
 
 #define FASTSEEK_MIN	(1024 * 1024)	// files at least this large get a cluster map
 #define FASTSEEK_FILES	8
+#define LINKMAP_ATTEMPTS	2	// a cluster map is built again once after a failed SD read
 
 #define SD_MOUNT_ATTEMPTS	5
 
@@ -103,6 +109,49 @@ uint32_t dx_fatfs_data_id (void)
 	return data_id;
 }
 
+/*
+==============================================================================
+
+SD driver calls
+
+==============================================================================
+*/
+
+DRESULT __real_disk_read (BYTE drv, BYTE *buff, LBA_t sector, UINT count);
+DRESULT __real_disk_write (BYTE drv, const BYTE *buff, LBA_t sector, UINT count);
+DRESULT __real_disk_ioctl (BYTE drv, BYTE cmd, void *buff);
+
+DRESULT __wrap_disk_read (BYTE drv, BYTE *buff, LBA_t sector, UINT count)
+{
+	DRESULT	r;
+
+	dx_usb_hold ();
+	r = __real_disk_read (drv, buff, sector, count);
+	dx_usb_release ();
+	return r;
+}
+
+DRESULT __wrap_disk_write (BYTE drv, const BYTE *buff, LBA_t sector, UINT count)
+{
+	DRESULT	r;
+
+	dx_usb_hold ();
+	r = __real_disk_write (drv, buff, sector, count);
+	dx_usb_release ();
+	return r;
+}
+
+// CTRL_SYNC waits for the card to finish writing (500 ms at most)
+DRESULT __wrap_disk_ioctl (BYTE drv, BYTE cmd, void *buff)
+{
+	DRESULT	r;
+
+	dx_usb_hold ();
+	r = __real_disk_ioctl (drv, cmd, buff);
+	dx_usb_release ();
+	return r;
+}
+
 static const char *strip_dotslash (const char *p)
 {
 	if (p && p[0] == '.' && (p[1] == '/' || p[1] == '\\'))
@@ -155,34 +204,38 @@ static BYTE fatfs_mode (int oflag)
 	return m;
 }
 
-// Attaches a fast-seek cluster map to a large file opened read-only.
-static void attach_linkmap (FIL *f, const char *path)
+// Attaches a fast-seek cluster map to a large file opened read-only. FR_OK also when the
+// file gets none (small, no memory). An error means that an SD read failed while the map
+// was built; FatFs keeps that error with the file and fails every later call on it.
+static FRESULT attach_linkmap (FIL *f, const char *path)
 {
 	int		i, freeslot = -1;
 	DWORD	*t;
+	FRESULT	fr;
 
 	if (f_size (f) < FASTSEEK_MIN || strlen (path) >= sizeof(linkmaps[0].path))
-		return;
+		return FR_OK;
 	for (i = 0; i < FASTSEEK_FILES; i++)
 	{
 		if (linkmaps[i].table && !strcasecmp (linkmaps[i].path, path))
 		{
 			f->cltbl = linkmaps[i].table;
-			return;
+			return FR_OK;
 		}
 		if (!linkmaps[i].table && freeslot < 0)
 			freeslot = i;
 	}
 	if (freeslot < 0)
-		return;
+		return FR_OK;
 
 	// the table needs 2 DWORDs per fragment plus one; FatFs reports the size needed
 	t = malloc (16 * sizeof(DWORD));
 	if (!t)
-		return;
+		return FR_OK;
 	t[0] = 16;
 	f->cltbl = t;
-	if (f_lseek (f, CREATE_LINKMAP) == FR_NOT_ENOUGH_CORE)
+	fr = f_lseek (f, CREATE_LINKMAP);
+	if (fr == FR_NOT_ENOUGH_CORE)
 	{
 		DWORD	need = t[0];
 		DWORD	*bigger = realloc (t, need * sizeof(DWORD));
@@ -191,26 +244,29 @@ static void attach_linkmap (FIL *f, const char *path)
 		{
 			free (t);
 			f->cltbl = NULL;
-			return;
+			return FR_OK;
 		}
 		t = bigger;
 		t[0] = need;
 		f->cltbl = t;
-		if (f_lseek (f, CREATE_LINKMAP) != FR_OK)
-		{
-			free (t);
-			f->cltbl = NULL;
-			return;
-		}
+		fr = f_lseek (f, CREATE_LINKMAP);
+	}
+	if (fr != FR_OK)
+	{
+		free (t);
+		f->cltbl = NULL;
+		return fr;
 	}
 	f_lseek (f, 0);
 	strcpy (linkmaps[freeslot].path, path);
 	linkmaps[freeslot].table = t;
+	return FR_OK;
 }
 
 static int dx_open (const char *path, int oflag)
 {
 	int		slot = -1, i;
+	FRESULT	fr;
 
 	for (i = 0; i < DX_MAXFDS; i++)
 		if (!used[i])
@@ -224,13 +280,29 @@ static int dx_open (const char *path, int oflag)
 		return -1;
 	}
 	path = strip_dotslash (path);
-	if (f_open (&fils[slot], path, fatfs_mode (oflag)) != FR_OK)
+	fr = f_open (&fils[slot], path, fatfs_mode (oflag));
+	if (fr != FR_OK)
 	{
-		errno = ENOENT;
+		// a card that does not answer is no missing file (libmpq: "open error", not "missing")
+		errno = (fr == FR_DISK_ERR || fr == FR_INT_ERR || fr == FR_NOT_READY) ? EIO : ENOENT;
 		return -1;
 	}
+	// A failed SD read while the cluster map is built leaves the file unusable: open it
+	// again (which clears the error) and build the map once more. If that fails too, the
+	// file goes without one; its seeks then follow the FAT chain.
 	if ((oflag & O_ACCMODE) == O_RDONLY)
-		attach_linkmap (&fils[slot], path);
+		for (i = 1; (fr = attach_linkmap (&fils[slot], path)) != FR_OK; i++)
+		{
+			printf ("dx_fatfs: cluster map of %s failed (FatFs error %d)\n", path, fr);
+			f_close (&fils[slot]);
+			if (f_open (&fils[slot], path, FA_READ) != FR_OK)
+			{
+				errno = EIO;
+				return -1;
+			}
+			if (i == LINKMAP_ATTEMPTS)
+				break;
+		}
 	used[slot] = 1;
 	return slot + DX_FD_BASE;
 }

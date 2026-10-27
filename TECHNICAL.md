@@ -240,6 +240,12 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 - **Sampling:** the USB host is run from a 4 ms timer interrupt. Changes of
   keys, mouse buttons and pad buttons are recorded in a ring (`src/pico/dx_usb.cpp`) and
   turned into SDL events in thread context (`dx_input.cpp`).
+- **USB and the SD card:** while a device enumerates, TinyUSB (without an OS) busy-waits
+  in that interrupt: 450 ms after an attach, 50 ms per port reset. The SD driver gives up
+  on a block after 200 ms by the clock, even if the card answered in the meantime, so
+  FatFs's calls into the driver hold the timer off for each transfer (`--wrap` of
+  `disk_read`, `disk_write` and `disk_ioctl`, `dx_fatfs_io.c`). Without this, devices that
+  attached while DIABDAT.MPQ was being opened made SD reads fail at start-up.
 - **Gamepads:** USB pads and the NES/SNES ports are merged into SDL joystick 0. The engine
   is told the button numbers with the `JOY_*` definitions in `cmake/dx_engine.cmake`, and
   its default padmapper layout (`InitPadmapActions`) is used unchanged. The stick clicks
@@ -308,7 +314,8 @@ time per frame (ms): other 2.1 logic 5.0 view 40.2 draw 6.0 copy 6.2 vsync 8.0 a
   writes so that any write into cached data faults;
 - PPM frame dumps (`DX_DUMP_EVERY`, `DX_DUMP_DIR`);
 - audio into a WAV file (`DX_AUDIO_WAV`);
-- scripted input (`DX_SCRIPT`).
+- scripted input (`DX_SCRIPT`);
+- the board's file layer on a card image (`DX_SDCARD`, see below).
 
 ```sh
 # data directory: spawn.mpq and the assets
@@ -344,6 +351,29 @@ mode ends with a summary once every listed level has been visited: flash erased,
 time on the board (typical NOR timings), directory commits, the most and the average
 erased sector, and evictions of recently used entries per run. `DX_HOST=<binary>` runs
 another build of the test program, for example to compare two cache versions.
+
+In the SD card mode the engine's files go through the board's own file layer,
+`src/pico/dx_fatfs_io.c` on FatFs with the board's `ffconf.h`, on an image of a card
+instead of the host's file system, and the game starts as on the board (`dx_fatfs_init`,
+then the board's arguments). `hosttest/dx_sdimg` builds the image: FAT32 or exFAT, any
+cluster size, and optionally with every large file split into fragments. Above the file
+layer the test program uses glibc's stdio instead of newlib's, with newlib's 1 KB buffer.
+
+```sh
+# a card with the game data where the board expects it, then a start as on the board
+hosttest/dx_sdimg -t fat32 -c 32 /tmp/dx/card.img /path/to/diabdat-data=/roms/devilutionx
+DX_SDCARD=/tmp/dx/card.img DX_MAX_FRAMES=300 hosttest/dx_host --verbose
+
+# exFAT, 128 KB clusters, large files in 40 fragments
+hosttest/dx_sdimg -t exfat -c 128 -f 40 /tmp/dx/card.img /path/to/diabdat-data=/roms/devilutionx
+
+# a card that fails to answer: every SD read numbered, then read 100 fails
+DX_SDCARD_TRACE=1 DX_SDCARD=/tmp/dx/card.img DX_MAX_FRAMES=300 hosttest/dx_host 2> trace.log
+DX_SDCARD_FAIL=100 DX_SDCARD=/tmp/dx/card.img DX_MAX_FRAMES=300 hosttest/dx_host
+```
+
+With `DX_SDCARD_TRACE` the opened files are listed with the SD reads before them.
+`DX_SDCARD_FAIL` takes a comma-separated list of read numbers.
 
 Other tools:
 

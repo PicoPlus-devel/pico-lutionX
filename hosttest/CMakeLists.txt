@@ -40,18 +40,45 @@ add_custom_command(
   COMMAND_EXPAND_LISTS
   VERBATIM)
 
+# SD card mode (DX_SDCARD=<card image>, sdcard/sd_host.c): the board's file layer
+# src/pico/dx_fatfs_io.c on the board's FatFs and ffconf.h, on a card image from dx_sdimg.
+set(FATFS_DIR ${PICO_LUTIONX_ROOT}/3rdparty/pico_shared_drivers/drivers/pico_fatfs/fatfs)
+set(SDCARD_DIR ${CMAKE_CURRENT_LIST_DIR}/sdcard)
+set(FATFS_SOURCES ${FATFS_DIR}/ff.c ${FATFS_DIR}/ffsystem.c ${FATFS_DIR}/ffunicode.c)
+
+add_library(dx_sdcard OBJECT
+  ${FATFS_SOURCES}
+  ${PICO_LUTIONX_ROOT}/src/pico/dx_fatfs_io.c
+  ${SDCARD_DIR}/sd_disk.c
+  ${SDCARD_DIR}/sd_host.c)
+target_include_directories(dx_sdcard PRIVATE ${SDCARD_DIR}/shim ${SDCARD_DIR} ${FATFS_DIR} ${FATFS_DIR}/conf
+  ${PICO_LUTIONX_ROOT}/src/pico ${PICO_LUTIONX_ROOT}/src/port)
+target_compile_options(dx_sdcard PRIVATE ${HOST_FLAGS} -U_FORTIFY_SOURCE)
+set_source_files_properties(${PICO_LUTIONX_ROOT}/src/pico/dx_fatfs_io.c PROPERTIES
+  COMPILE_OPTIONS "-include;${SDCARD_DIR}/dx_fatfs_io_host.h")
+
 add_executable(dx_host
   ${CMAKE_CURRENT_LIST_DIR}/dx_host.cpp
   ${PICO_LUTIONX_ROOT}/src/port/dx_heap.cpp
   ${PICO_LUTIONX_ROOT}/3rdparty/tlsf/tlsf.c
   ${CMAKE_CURRENT_BINARY_DIR}/gen/dx_static_bytes.h
-  $<TARGET_OBJECTS:dx_engine>)
-target_include_directories(dx_host PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen)
+  $<TARGET_OBJECTS:dx_engine>
+  $<TARGET_OBJECTS:dx_sdcard>)
+target_include_directories(dx_host PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen ${SDCARD_DIR} ${PICO_LUTIONX_ROOT}/src/pico)
 target_compile_definitions(dx_host PRIVATE DX_HEAP_HOST)
 target_link_libraries(dx_host PRIVATE dx_engine)
 target_link_options(dx_host PRIVATE -m32 ${HOST_FLAGS}
-  -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=aligned_alloc,--wrap=posix_memalign)
+  -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=aligned_alloc,--wrap=posix_memalign
+  -Wl,--wrap=fopen,--wrap=stat,--wrap=access,--wrap=mkdir,--wrap=remove,--wrap=rename,--wrap=truncate,--wrap=readlink
+  -Wl,--wrap=disk_read,--wrap=disk_write,--wrap=disk_ioctl)
 set_target_properties(dx_host PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
 if(NOT DX_SANITIZE)
   set_target_properties(dx_host PROPERTIES OUTPUT_NAME dx_host_nosan)
 endif()
+
+# Card images for the SD card mode (sdcard/sd_mkimg.c): FatFs with the board's ffconf.h and f_mkfs.
+add_executable(dx_sdimg ${SDCARD_DIR}/sd_mkimg.c ${SDCARD_DIR}/sd_disk.c ${FATFS_SOURCES})
+target_include_directories(dx_sdimg PRIVATE ${SDCARD_DIR}/mkimg_conf ${SDCARD_DIR} ${FATFS_DIR})
+target_compile_definitions(dx_sdimg PRIVATE BOARD_FFCONF="${FATFS_DIR}/conf/ffconf.h")
+target_compile_options(dx_sdimg PRIVATE -O2 -g)
+set_target_properties(dx_sdimg PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})

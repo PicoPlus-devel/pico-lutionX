@@ -94,6 +94,9 @@ target_link_libraries(pico_lutionx PRIVATE
     i2c_bus_recovery
 )
 
+# FatFs's calls into the SD driver go through dx_fatfs_io.c (it holds the USB timer off)
+target_link_options(pico_lutionx PRIVATE -Wl,--wrap=disk_read,--wrap=disk_write,--wrap=disk_ioctl)
+
 pico_enable_stdio_uart(pico_lutionx 1)
 pico_enable_stdio_usb(pico_lutionx 0)
 

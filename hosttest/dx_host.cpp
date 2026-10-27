@@ -12,13 +12,19 @@
 //     data faults; DX_FCACHE_FILE keeps the region between runs (warm cache), and the
 //     erase count of every 4 KB sector in <DX_FCACHE_FILE>.wear;
 //   - audio: the mixer (src/aulib) is pulled at 22050 Hz as time passes; DX_AUDIO_WAV=file
-//     writes what it produced.
+//     writes what it produced;
+//   - DX_SDCARD=image: the SD card mode. The engine's files go through the board's file
+//     layer (src/pico/dx_fatfs_io.c on FatFs) on a card image made by dx_sdimg, and the
+//     game starts as on the board: dx_fatfs_init, then the board's arguments (dx_boot.c),
+//     followed by any given here. DX_SDCARD_FAIL and DX_SDCARD_TRACE: sdcard/sd_disk.c.
 //
 // Usage:
 //   dx_host [DevilutionX options]                  run the game (e.g. --demo 0 --timedemo)
 //   dx_host --timedemo-test <fixture-dir> <data-dir>
 //       replay the fixture headless, exactly as upstream's test/timedemo_test.cpp, and
 //       compare the resulting hero with the reference (exit 0 = same).
+//   dx_sdimg [-t fat32|exfat] [-s MB] [-c cluster-KB] [-f fragments] <image> <dir>=/roms/devilutionx
+//       a card image with <dir> (the game data and the assets folder) where the board has it.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -35,9 +41,12 @@
 
 #include "diablo.h"
 #include "Aulib/Stream.h"
+#include "dx_fatfs_io.h"
 #include "dx_fcache.h"
 #include "dx_heap.h"
+#include "dx_platform.h"
 #include "dx_prof.h"
+#include "sd_host.h"
 #include "engine/demomode.h"
 #include "init.h"
 #include "options.h"
@@ -49,6 +58,12 @@
 #include "utils/ui_fwd.h"
 
 namespace {
+
+// The harness's own files stay on the host in the SD card mode.
+struct HostFiles {
+	HostFiles() { dx_sdcard_host_files(1); }
+	~HostFiles() { dx_sdcard_host_files(-1); }
+};
 
 // ---- Clock -----------------------------------------------------------------------------
 
@@ -72,6 +87,7 @@ unsigned MaxFrames;
 
 void DumpFrame(const Uint8 *pixels, int pitch, int width, int height)
 {
+	HostFiles host;
 	char name[512];
 	snprintf(name, sizeof(name), "%s/frame_%05u.ppm", DumpDir.c_str(), Frames);
 	FILE *f = fopen(name, "wb");
@@ -135,6 +151,7 @@ SDLKey KeyByName(const std::string &name)
 
 void LoadScript(const char *path)
 {
+	HostFiles host;
 	FILE *f = fopen(path, "r");
 	if (f == nullptr) {
 		fprintf(stderr, "dx_host: cannot open script %s\n", path);
@@ -229,6 +246,7 @@ void PullAudio(uint32_t nowMs)
 
 void OpenAudioWav()
 {
+	HostFiles host;
 	if (const char *file = getenv("DX_AUDIO_WAV")) {
 		AudioWav = fopen(file, "wb");
 		if (AudioWav != nullptr)
@@ -324,11 +342,12 @@ uint32_t GameDataId(const std::string &dataDir)
 	return 0;
 }
 
-void SetupFlash(const std::string &dataDir)
+void SetupFlash(uint32_t dataId)
 {
 	const char *enable = getenv("DX_FCACHE");
 	if (enable == nullptr || enable[0] != '1')
 		return;
+	HostFiles host;
 	unsigned kb = 13312;
 	if (const char *env = getenv("DX_FCACHE_KB"))
 		kb = static_cast<unsigned>(atoi(env));
@@ -350,13 +369,14 @@ void SetupFlash(const std::string &dataDir)
 	}
 	FlashWritable(false);
 	FlashOps = { FlashBase, FlashSize, FlashErase, FlashProgram };
-	dx_fcache_set_flash(&FlashOps, GameDataId(dataDir));
+	dx_fcache_set_flash(&FlashOps, dataId);
 }
 
 void ReportFlash()
 {
 	if (FlashBase == nullptr)
 		return;
+	HostFiles host;
 	dx_fcache_stats_t st;
 	dx_fcache_get_stats(&st);
 	fprintf(stderr, "dx_fcache: %u entries, %u KB used of %u KB, %u hits, %u misses, %u stored, %u failed, %u evicted (%u recent); "
@@ -567,15 +587,37 @@ int main(int argc, char **argv)
 	atexit(AtExit);
 
 	if (argc >= 4 && strcmp(argv[1], "--timedemo-test") == 0) {
-		SetupFlash(argv[3]);
+		SetupFlash(GameDataId(argv[3]));
 		return RunTimedemoTest(argv[2], argv[3]);
+	}
+	if (const char *image = getenv("DX_SDCARD")) {
+		if (dx_sdcard_attach(image) != 0)
+			return 2;
+		setvbuf(stdout, nullptr, _IOLBF, 0); // dx_fatfs_init's printf in order with the engine's log
+		// as src/pico/dx_boot.c main()
+		dx_fatfs_init();
+		SetupFlash(dx_fatfs_data_id());
+		// the board's MPQ search paths: the data folder and the current directory (no XDG ones)
+		setenv("XDG_DATA_DIRS", "", 1);
+		// the board's SDL_GetBasePath() is the data folder (DEVILUTIONX_PICO_DATA_DIR)
+		devilution::paths::SetAssetsPath(DX_DATA_DIR "/assets/");
+		static std::vector<char *> boardArgs = {
+			argv[0],
+			const_cast<char *>("--data-dir"), const_cast<char *>(DX_DATA_DIR),
+			const_cast<char *>("--save-dir"), const_cast<char *>(DX_DATA_DIR),
+			const_cast<char *>("--config-dir"), const_cast<char *>(DX_DATA_DIR),
+			const_cast<char *>("-n"),
+		};
+		boardArgs.insert(boardArgs.end(), argv + 1, argv + argc);
+		boardArgs.push_back(nullptr);
+		return devilution::DiabloMain(static_cast<int>(boardArgs.size()) - 1, boardArgs.data());
 	}
 	// The engine looks for its loose assets next to the executable (as SDL_GetBasePath()
 	// returns it); like on the board, use <data-dir>/assets/ instead.
 	for (int i = 1; i + 1 < argc; i++) {
 		if (strcmp(argv[i], "--data-dir") == 0) {
 			devilution::paths::SetAssetsPath(std::string(argv[i + 1]) + "/assets/");
-			SetupFlash(argv[i + 1]);
+			SetupFlash(GameDataId(argv[i + 1]));
 		}
 	}
 	return devilution::DiabloMain(argc, argv);

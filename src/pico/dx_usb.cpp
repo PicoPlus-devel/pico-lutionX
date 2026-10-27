@@ -36,6 +36,7 @@
 
 static alarm_pool_t *tick_pool;
 static repeating_timer_t tick_timer;
+static bool tick_running;
 
 // ---- Event ring: written by the timer interrupt, read in thread context --------------
 
@@ -256,9 +257,27 @@ void dx_usb_init(void)
 	tick_pool = alarm_pool_create(USB_TICK_ALARM, 1);
 	irq_set_priority(hardware_alarm_get_irq_num(USB_TICK_ALARM), PICO_LOWEST_IRQ_PRIORITY);
 	alarm_pool_add_repeating_timer_us(tick_pool, -USB_TICK_US, usb_tick, NULL, &tick_timer);
+	tick_running = true;
 #ifdef HAS_USBPIO
 	printf("dx_usb: PIO-USB host on GPIO %d/%d\n", PIN_USB_HOST_DP, PIN_USB_HOST_DM);
 #else
 	printf("dx_usb: USB host on the native USB port\n");
 #endif
+}
+
+// While a device enumerates, tuh_task busy-waits in the timer interrupt (TinyUSB without
+// an OS: 450 ms after an attach, 50 ms per port reset, 100 ms per retry). The SD driver
+// gives up on a block it has waited 200 ms for by the clock (tf_card.c rcvr_datablock),
+// even when the card answered in the meantime, so an SD transfer that the tick interrupts
+// can fail. The tick is held off for the length of each transfer instead.
+void dx_usb_hold(void)
+{
+	if (tick_running)
+		irq_set_enabled(hardware_alarm_get_irq_num(USB_TICK_ALARM), false);
+}
+
+void dx_usb_release(void)
+{
+	if (tick_running)
+		irq_set_enabled(hardware_alarm_get_irq_num(USB_TICK_ALARM), true);
 }

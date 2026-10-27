@@ -35,6 +35,10 @@ void dx_input_sticks(int16_t axes[4]);
 
 // Brings up the USB host and starts the sampling timer.
 void dx_usb_init(void);
+// Holds the sampling timer off during an SD card transfer (dx_fatfs_io.c) and lets it
+// run again; a tick that fell due meanwhile runs then.
+void dx_usb_hold(void);
+void dx_usb_release(void);
 
 // dx_usb_frame.c: drives the 1 ms USB frame (called by dx_usb_init), and keeps SOFs
 // going around a flash erase or program (masks every other interrupt on core0).
