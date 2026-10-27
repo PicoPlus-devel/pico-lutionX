@@ -259,8 +259,16 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   `controls/menu_controls.cpp`).
 - **SNES Mouse:** with `NESPAD_SNES_MOUSE` (board header) the nespad driver clocks 32 bits
   per read and reports a mouse in either port through `nespad_mouse[]`. `dx_usb.cpp`
-  merges its buttons with a USB mouse's; its motion, 4 cursor pixels per count, is added
-  in `dx_input_mouse`.
+  merges its buttons with a USB mouse's. Its motion is accelerated in `dx_nespad.cpp`,
+  from 4 cursor pixels per count when it moves slowly to 16 when it moves fast (the speed
+  averaged over 32 ms), and added in `dx_input_mouse`. The mouse's own higher
+  sensitivities are not used: they only boost 4 counts or more between two reads, and
+  at a read every 4 ms that takes a 15 inch/s swipe.
+- **Controller-port reads:** `dx_nespad.cpp` collects a read and starts the next at most
+  once per millisecond. A start within about 5 us of the previous read's end is lost and
+  the state machine then waits forever, and after the interrupts were off (a flash erase,
+  a USB device enumerating) the 4 ms timer runs the missed ticks back to back. Before
+  this, the ports could be disabled after a level load ("a read never completed").
 - **Wii pad (Fruit Jam):** read in thread context every 10 ms (`dx_wiipad.cpp`, after
   pico-duke3D's), because it shares the I2C bus with the TLV320 codec. It is brought up
   before the codec.

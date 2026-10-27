@@ -161,8 +161,9 @@ On the Pico Plus 2 board, an original SNES Mouse can be used instead of, or toge
 with, a USB mouse. It plugs into either controller port (a port for NES controllers needs
 a SNES-to-NES adapter cable), and a controller can be used in the other port at the same
 time. Its two buttons are the left and right mouse buttons. The board sets the mouse to
-its lowest sensitivity when it is connected; the cursor then moves about 200 pixels per
-inch.
+its lowest sensitivity when it is connected. The cursor moves about 200 pixels per inch
+when the mouse is moved slowly, for precise aiming, and up to about 800 when it is moved
+fast.
 
 ### Gamepad
 

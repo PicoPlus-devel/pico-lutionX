@@ -3,7 +3,8 @@
 //
 // The USB timer (dx_usb.cpp) asks for the buttons every 4 ms. Each call collects
 // the read started on the previous call and starts the next one, so a read
-// (about 200 us at the driver's 1 MHz PIO clock) never stalls the interrupt.
+// (about 390 us of 32 bits at the driver's 1 MHz PIO clock) never stalls the
+// interrupt.
 // The buttons are translated to io::GamePadState::Button bits per port and
 // merged with the USB pads, so a SNES pad in a port acts exactly like the USB
 // pad with the same buttons (dx_input.cpp names them by position). A NES pad
@@ -19,6 +20,14 @@
 //     state machine waits forever; hence the wait before the first start.
 //   - nespad_read_finish blocks, so it is only called once nespad_read_ready
 //     says the words are there. A port that never delivers is given up after 1 s.
+//
+// And one learned here: a state machine hands its word over about 5 us before
+// it is back on its "irq wait", and a start in those 5 us is lost in the same
+// way. After the interrupts were off for a while (a flash erase, a USB device
+// enumerating) the timer runs the missed ticks back to back, microseconds apart,
+// and one of them could land there; the ports were then disabled after a level
+// load. So a read is collected and the next one started at most once per
+// READ_GAP_US, long after the state machines are back on their wait.
 //
 // Boards without NES_PIN_CLK in their header get empty functions, and the linker
 // drops the driver.
@@ -41,14 +50,26 @@
 #define HAVE_PORT_1		0
 #endif
 #define DEAD_AFTER_US	1000000
-// Cursor pixels per SNES Mouse count. The driver keeps the mouse at its lowest
-// sensitivity, about 50 counts per inch: 4 moves the cursor across the 640
-// pixels of the screen in about 3 inches.
-#define MOUSE_SCALE		4
+#define READ_GAP_US		1000
+// Cursor speed of a SNES Mouse. The driver keeps the mouse at its lowest
+// sensitivity, about 50 counts per inch. Its own higher settings only boost a
+// movement of 4 counts or more between two reads, which at a read every 4 ms
+// takes a swipe of 15 inches a second, so the acceleration is done here: a slow
+// movement gets MOUSE_GAIN_SLOW cursor pixels per count, for aiming, and from
+// MOUSE_SPEED_SLOW to MOUSE_SPEED_FAST the gain rises to MOUSE_GAIN_FAST, about
+// the speed of a USB mouse of 800 counts per inch (one pixel per count). Speeds
+// are in 1/256 counts per read, averaged over about 8 reads (32 ms).
+#define MOUSE_GAIN_SLOW		4		// 200 pixels per inch
+#define MOUSE_GAIN_FAST		16		// 800 pixels per inch
+#define MOUSE_SPEED_SLOW	51		// 0.2 counts per read: 1 inch a second
+#define MOUSE_SPEED_FAST	256		// 1 count per read: 5 inches a second
 
 static bool		up, dead;
 static uint32_t	last;				// io bits of the last completed read
 static uint8_t	mouse_buttons;		// SNES Mouse buttons of the last completed read
+static int32_t	mouse_speed;		// SNES Mouse counts per read, x256, averaged
+static int32_t	mouse_px[2];		// SNES Mouse motion not yet handed out, in 1/16 pixels
+static uint32_t	started;			// time_us_32 of the last nespad_read_start
 static uint64_t	not_ready_since;
 
 using Button = io::GamePadState::Button;
@@ -142,6 +163,31 @@ static uint32_t to_buttons (int port)
 	}
 }
 
+// Moves the SNES Mouse counts of the last read into mouse_px[], at the gain for
+// the current speed
+static void mouse_accelerate (void)
+{
+	int32_t	cx = 0, cy = 0, c, gain;	// gain in 1/16 pixels per count
+
+	for (int i = 0; i < 2; i++)
+	{
+		cx += nespad_mouse[i].dx;
+		cy += nespad_mouse[i].dy;
+		nespad_mouse[i].dx = nespad_mouse[i].dy = 0;
+	}
+	c = (cx < 0 ? -cx : cx) + (cy < 0 ? -cy : cy);
+	mouse_speed += (c * 256 - mouse_speed) / 8;
+	if (mouse_speed <= MOUSE_SPEED_SLOW)
+		gain = MOUSE_GAIN_SLOW * 16;
+	else if (mouse_speed >= MOUSE_SPEED_FAST)
+		gain = MOUSE_GAIN_FAST * 16;
+	else
+		gain = MOUSE_GAIN_SLOW * 16 + (mouse_speed - MOUSE_SPEED_SLOW) *
+			(MOUSE_GAIN_FAST - MOUSE_GAIN_SLOW) * 16 / (MOUSE_SPEED_FAST - MOUSE_SPEED_SLOW);
+	mouse_px[0] += cx * gain;
+	mouse_px[1] += cy * gain;
+}
+
 void dx_nespad_init (void)
 {
 	uint32_t	cpu_khz = clock_get_hz (clk_sys) / 1000;
@@ -157,6 +203,7 @@ void dx_nespad_init (void)
 	}
 	busy_wait_us (100);		// let the state machines reach their irq wait
 	nespad_read_start ();
+	started = time_us_32 ();
 	up = true;
 #if HAVE_PORT_1
 	printf ("dx_nespad: NES/SNES ports on GPIO %d-%d and %d-%d\n",
@@ -170,6 +217,8 @@ uint32_t dx_nespad_buttons (void)
 {
 	if (!up || dead)
 		return 0;
+	if (time_us_32 () - started < READ_GAP_US)
+		return last;
 	if (!nespad_read_ready ())
 	{
 		uint64_t	now = time_us_64 ();
@@ -190,7 +239,9 @@ uint32_t dx_nespad_buttons (void)
 	last = to_buttons (0) | to_buttons (1);
 	// 0 on a port without a mouse
 	mouse_buttons = nespad_mouse[0].buttons | nespad_mouse[1].buttons;
+	mouse_accelerate ();
 	nespad_read_start ();
+	started = time_us_32 ();
 	return last;
 }
 
@@ -199,14 +250,15 @@ uint8_t dx_nespad_mouse_buttons (void)
 	return mouse_buttons;
 }
 
+// Whole pixels; the rest stays for the next call
 void dx_nespad_mouse_motion (int *dx, int *dy)
 {
-	for (int i = 0; i < 2; i++)
-	{
-		*dx += nespad_mouse[i].dx * MOUSE_SCALE;
-		*dy += nespad_mouse[i].dy * MOUSE_SCALE;
-		nespad_mouse[i].dx = nespad_mouse[i].dy = 0;
-	}
+	int	px = mouse_px[0] / 16, py = mouse_px[1] / 16;
+
+	*dx += px;
+	*dy += py;
+	mouse_px[0] -= px * 16;
+	mouse_px[1] -= py * 16;
 }
 
 #else
