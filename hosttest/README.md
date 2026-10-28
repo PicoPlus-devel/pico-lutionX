@@ -291,9 +291,20 @@ For each level of the shareware data (0 to 4), `sweep.sh` starts the reference d
 moves the hero to the level and records the heap per category: in a 64 MiB pool (`all`,
 what the engine needs in total), in the board's pool with every cacheable allocation in a
 separate pool (`flash`, what would stay in PSRAM if every asset were cached), and in the
-board's pool with the real flash cache (`fcache`). The result is a CSV table. A run
-that runs out of PSRAM ends with "Aborted" from the shell (see [Memory](#memory)); with
-the shareware data this happens in some `flash` runs.
+board's pool with the real flash cache (`fcache`). The result is a CSV table:
+
+```
+level,mode,result,psram_live,psram_peak_since_previous,resident_live,...
+1,flash,out-of-memory-in-level,7350888,7385292,7350888,...
+2,fcache,ok,1974084,5702144,1873640,...
+4,flash,out-of-memory,6437472,7458088,6437472,...
+```
+
+The `result` column is `ok`, `out-of-memory` when a pool ran out before the level had
+loaded (the row then holds the heap at that moment), or `out-of-memory-in-level` when the
+level loaded (the row holds its report) and the run ran out of memory later in the level.
+A run that runs out of memory aborts, which the shell reports (see [Memory](#memory)).
+With the shareware data this happens in some `flash` runs.
 
 ### A card that fails to answer
 
@@ -409,7 +420,7 @@ has been presented. Lines starting with `#` are comments. The example
 |---|---|
 | `sweep.sh <data-dir> [levels...]` | Heap per level with the shareware demo fixture: in a large pool, with every sprite cached, and with the real flash cache. CSV on standard output. |
 | `levels.sh <data-dir> [cold\|warm] [levels...]` | Takes a new hero to each level with either game data and reports PSRAM, flash cache and the result per level; `warm` keeps one cache from run to run and ends with a summary of the flash wear. |
-| `ppm2png.py [--hdmi] <ppm...>` | Converts frames to PNG. `--hdmi` also truncates each colour channel to 5 bits, as the board's RGB555 output does, and doubles the picture to 1280x960. |
+| `ppm2png.py [--hdmi] <ppm...>` | Converts frames to PNG, next to each frame. `--hdmi` also truncates each colour channel to 5 bits, as the board's RGB555 output does. |
 | `dx_sdimg [-t fat32\|exfat] [-s MB] [-c cluster-KB] [-f fragments] <image> <dir>=<card-dir>...` | Builds a card image: formats it with FatFs and copies each directory into the card directory. `-f` splits every file of 1 MB or more into fragments, as on a card that has been written to before. |
 
 The scripts use `dx_host_nosan` (`NOSAN=1 hosttest/build.sh`); `levels.sh` runs another

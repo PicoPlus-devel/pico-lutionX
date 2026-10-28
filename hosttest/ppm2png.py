@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Convert binary PPM (P6) frames from q2_host to PNG. Standard library only.
+"""Convert binary PPM (P6) frames from dx_host (DX_DUMP_EVERY) to PNG. Standard library only.
 
     python3 hosttest/ppm2png.py frame_00600.ppm [more.ppm ...]   -> frame_00600.png ...
-    python3 hosttest/ppm2png.py --hdmi frame_00600.ppm           -> 640x480, as on the board
+    python3 hosttest/ppm2png.py --hdmi frame_00600.ppm           -> the colours as on the board
 """
 import struct
 import sys
@@ -43,16 +43,10 @@ def write_png(path, w, h, rgb):
         f.write(png)
 
 
-def hdmi(w, h, rgb):
-    """What the board puts on HDMI: RGB555 (src/pico/q2_display.c, rgb555x2), each
-    pixel doubled across and each line sent twice."""
-    rgb = bytes(c & 0xF8 for c in rgb)
-    rows = []
-    for y in range(h):
-        line = rgb[y * w * 3:(y + 1) * w * 3]
-        wide = b"".join(line[x * 3:x * 3 + 3] * 2 for x in range(w))
-        rows += [wide, wide]
-    return w * 2, h * 2, b"".join(rows)
+def hdmi(rgb):
+    """What the board puts on HDMI: the frame as it is (640x480), each channel truncated
+    to 5 bits by the RGB555 table (src/pico/dx_display.c, rgb555)."""
+    return rgb.translate(bytes(c & 0xF8 for c in range(256)))
 
 
 args = sys.argv[1:]
@@ -60,7 +54,7 @@ as_hdmi = "--hdmi" in args
 for src in (a for a in args if a != "--hdmi"):
     w, h, rgb = read_ppm(src)
     if as_hdmi:
-        w, h, rgb = hdmi(w, h, rgb)
+        rgb = hdmi(rgb)
     dst = src[:-4] + ".png" if src.endswith(".ppm") else src + ".png"
     write_png(dst, w, h, rgb)
     print(dst)

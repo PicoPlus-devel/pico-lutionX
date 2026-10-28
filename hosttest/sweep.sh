@@ -4,8 +4,9 @@
 #
 #   hosttest/sweep.sh <data-dir> [levels...]     (default levels: 0 1 2 3 4, all of spawn)
 #
-# <data-dir> holds spawn.mpq or DIABDAT.MPQ and an `assets` folder (DevilutionX assets).
-# Each level is run twice:
+# <data-dir> holds spawn.mpq (the demo fixture is a shareware hero; levels.sh works with
+# either game data) and an `assets` folder (DevilutionX assets). Each level is run three
+# times:
 #   all      PSRAM pool of 64 MiB, no flash cache: the total the engine needs
 #   flash    PSRAM pool of the board (8 MiB - static data), all sprite data in a simulated
 #            flash pool: what would stay in PSRAM if every sprite set were cached
@@ -13,7 +14,12 @@
 #            starting empty: what the board does on the first visit of the level
 # Output: CSV on stdout (bytes; "demo" is the demo playback buffer, not part of normal play).
 # After the warp the demo runs out of input and the engine stops in an error dialog; the
-# frame limit (DX_MAX_FRAMES) ends the run once the level report has been written.
+# frame limit (DX_MAX_FRAMES) ends the run once the level report has been written. Without
+# a warp (the demo's own level 1) the demo plays on.
+# result: ok; out-of-memory (a pool ran out before the level had loaded, and the row holds
+# the heap at that moment); out-of-memory-in-level (the level loaded, the row holds its
+# report, and the run ran out of memory later in the level); no-level-mark. A run that runs
+# out of memory aborts, which the shell reports.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOST="$HERE/dx_host_nosan"
@@ -40,29 +46,34 @@ for level in $LEVELS; do
 			--save-dir "$WORK/save" --config-dir "$WORK/save" --demo 0 --timedemo -n --spawn \
 			+goto "$level" > "$WORK/run.log" 2>&1)
 		set -e
-		python3 -I - "$WORK/heap.log" "$level" "$mode" <<'EOF'
+		python3 -I - "$WORK/heap.log" "$WORK/run.log" "$level" "$mode" <<'EOF'
 import re
 import sys
 
-log, level, mode = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+log, run_log, level, mode = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 lines = open(log).read().splitlines()
-result = 'ok'
-mark = cats = None
+level_mark = oom_mark = None
 for i, line in enumerate(lines):
-    if 'OUT OF MEMORY' in line:
-        result = 'out-of-memory'
-    if line.startswith('MARK level %d ' % level) or line.startswith('MARK out of memory'):
-        mark, cats = line, lines[i + 1]
-if mark is None:
-    print(f'{level},{mode},no-level-mark' + ',' * 17)
+    if line.startswith('MARK level %d ' % level):
+        level_mark = line, lines[i + 1]
+    elif line.startswith('MARK out of memory'):  # src/port/dx_heap.cpp, then the run aborts
+        oom_mark = line, lines[i + 1]
+if oom_mark is None:
+    result, found = 'ok', level_mark
+elif level_mark is None:
+    result, found = 'out-of-memory', oom_mark
+else:
+    result, found = 'out-of-memory-in-level', level_mark
+if found is None:
+    print(f'{level},{mode},no-level-mark' + ',' * 16)
     sys.exit(0)
+mark, cats = found
 num = lambda key, text: int(re.search(key + r' +(\d+)', text).group(1))
 psram = mark.split('|')[0]
 resident = mark.split('|')[1]
 flash = num('flash-sim: live', mark) if 'flash-sim' in mark else 0
 if mode == 'fcache':
-    import re as _re
-    m = _re.search(r'dx_fcache: \d+ entries, (\d+) KB used', open(log.replace('heap.log', 'run.log')).read())
+    m = re.search(r'dx_fcache: \d+ entries, (\d+) KB used', open(run_log, errors='replace').read())
     flash = int(m.group(1)) * 1024 if m else 0
 live = {}
 for name, total, _cacheable, fl in re.findall(r'(\w+) (\d+)/(\d+)(?:\+flash (\d+))?', cats):
