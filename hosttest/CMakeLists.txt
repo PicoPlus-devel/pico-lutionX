@@ -1,5 +1,6 @@
 # Host harness: the engine as built for the board, on Linux (-m32 keeps pointer-heavy
-# structures the size they have on the ILP32 Cortex-M33). Built by hosttest/build.sh.
+# structures the size they have on the ILP32 Cortex-M33). Built by hosttest/build.sh;
+# see hosttest/README.md.
 cmake_minimum_required(VERSION 3.16)
 project(dx_host C CXX)
 
@@ -57,23 +58,53 @@ target_compile_options(dx_sdcard PRIVATE ${HOST_FLAGS} -U_FORTIFY_SOURCE)
 set_source_files_properties(${PICO_LUTIONX_ROOT}/src/pico/dx_fatfs_io.c PROPERTIES
   COMPILE_OPTIONS "-include;${SDCARD_DIR}/dx_fatfs_io_host.h")
 
-add_executable(dx_host
-  ${CMAKE_CURRENT_LIST_DIR}/dx_host.cpp
-  ${PICO_LUTIONX_ROOT}/src/port/dx_heap.cpp
-  ${PICO_LUTIONX_ROOT}/3rdparty/tlsf/tlsf.c
-  ${CMAKE_CURRENT_BINARY_DIR}/gen/dx_static_bytes.h
-  $<TARGET_OBJECTS:dx_engine>
-  $<TARGET_OBJECTS:dx_sdcard>)
-target_include_directories(dx_host PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen ${SDCARD_DIR} ${PICO_LUTIONX_ROOT}/src/pico)
-target_compile_definitions(dx_host PRIVATE DX_HEAP_HOST)
-target_link_libraries(dx_host PRIVATE dx_engine)
-target_link_options(dx_host PRIVATE -m32 ${HOST_FLAGS}
-  -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=aligned_alloc,--wrap=posix_memalign
-  -Wl,--wrap=fopen,--wrap=stat,--wrap=access,--wrap=mkdir,--wrap=remove,--wrap=rename,--wrap=truncate,--wrap=readlink
-  -Wl,--wrap=disk_read,--wrap=disk_write,--wrap=disk_ioctl)
-set_target_properties(dx_host PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
-if(NOT DX_SANITIZE)
-  set_target_properties(dx_host PROPERTIES OUTPUT_NAME dx_host_nosan)
+# The harness program; further sources after the name. Without sanitizers it is <name>_nosan.
+function(dx_add_host name)
+  add_executable(${name}
+    ${CMAKE_CURRENT_LIST_DIR}/dx_host.cpp
+    ${PICO_LUTIONX_ROOT}/src/port/dx_heap.cpp
+    ${PICO_LUTIONX_ROOT}/3rdparty/tlsf/tlsf.c
+    ${CMAKE_CURRENT_BINARY_DIR}/gen/dx_static_bytes.h
+    $<TARGET_OBJECTS:dx_engine>
+    $<TARGET_OBJECTS:dx_sdcard>
+    ${ARGN})
+  target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen ${SDCARD_DIR} ${PICO_LUTIONX_ROOT}/src/pico)
+  target_compile_definitions(${name} PRIVATE DX_HEAP_HOST)
+  target_link_libraries(${name} PRIVATE dx_engine)
+  target_link_options(${name} PRIVATE -m32 ${HOST_FLAGS}
+    -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=aligned_alloc,--wrap=posix_memalign
+    -Wl,--wrap=fopen,--wrap=stat,--wrap=access,--wrap=mkdir,--wrap=remove,--wrap=rename,--wrap=truncate,--wrap=readlink
+    -Wl,--wrap=disk_read,--wrap=disk_write,--wrap=disk_ioctl)
+  set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+  if(NOT DX_SANITIZE)
+    set_target_properties(${name} PROPERTIES OUTPUT_NAME ${name}_nosan)
+  endif()
+endfunction()
+
+dx_add_host(dx_host)
+
+# dx_host_sdl: the same in a window (dx_sdl.cpp), with the firmware's input layer
+# src/pico/dx_input.cpp, against the Debian/Ubuntu multiarch SDL2 for i386. SDL2 is
+# loaded with dlopen (see dx_sdl.cpp), so only its headers are needed here; dx_sdl.cpp
+# must not see the subset's SDL.h.
+set(ENV{PKG_CONFIG_LIBDIR} /usr/lib/i386-linux-gnu/pkgconfig)
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+  pkg_check_modules(SDL2_I386 QUIET sdl2)
+endif()
+if(SDL2_I386_FOUND)
+  set(USB_HID_DIR ${PICO_LUTIONX_ROOT}/3rdparty/pico_shared_drivers/usb_hid)
+  add_library(dx_sdl OBJECT ${CMAKE_CURRENT_LIST_DIR}/dx_sdl.cpp)
+  target_include_directories(dx_sdl PRIVATE ${SDL2_I386_INCLUDE_DIRS} ${PICO_LUTIONX_ROOT}/src/pico ${USB_HID_DIR})
+  target_compile_options(dx_sdl PRIVATE ${HOST_FLAGS} ${SDL2_I386_CFLAGS_OTHER})
+
+  set(DX_INPUT_SOURCE ${PICO_LUTIONX_ROOT}/src/pico/dx_input.cpp)
+  set_source_files_properties(${DX_INPUT_SOURCE} PROPERTIES INCLUDE_DIRECTORIES ${USB_HID_DIR})
+  dx_add_host(dx_host_sdl ${DX_INPUT_SOURCE} $<TARGET_OBJECTS:dx_sdl>)
+  target_compile_definitions(dx_host_sdl PRIVATE DX_HOST_SDL)
+  target_link_libraries(dx_host_sdl PRIVATE ${CMAKE_DL_LIBS})
+else()
+  message(NOTICE "no 32-bit SDL2 (libsdl2-dev:i386): dx_host_sdl not built")
 endif()
 
 # Card images for the SD card mode (sdcard/sd_mkimg.c): FatFs with the board's ffconf.h and f_mkfs.

@@ -15,7 +15,7 @@ study that preceded it is in [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
 | `src/aulib/` | an SDL_audiolib subset: streams, a mixer, PCM WAV and MP3 (dr_mp3) decoders |
 | `src/port/` | the engine heap (`dx_heap`) and the flash asset cache (`dx_fcache`), shared by the board and the test program |
 | `src/pico/` | the RP2350 platform layer: boot, display, audio, SD card, flash, USB, NES/SNES and Wii pads |
-| `hosttest/` | the test program for a PC: the same engine and SDL code on Linux (`-m32`) |
+| `hosttest/` | the test programs for a PC: the same engine and SDL code on Linux (`-m32`), headless and in a window ([hosttest/README.md](hosttest/README.md)) |
 | `tools/` | measurement and release tools |
 
 The engine is built with `USE_SDL1`, `NONET`, an 8-bit screen surface with
@@ -315,7 +315,11 @@ time per frame (ms): other 2.1 logic 5.0 view 40.2 draw 6.0 copy 6.2 vsync 8.0 a
 ## The test program
 
 `hosttest/build.sh` builds `hosttest/dx_host` (with AddressSanitizer and UBSan) and
-`NOSAN=1` builds `hosttest/dx_host_nosan`. It runs the engine with:
+`NOSAN=1` builds `hosttest/dx_host_nosan`. With the 32-bit SDL2 installed
+(`libsdl2-dev:i386`) it also builds `hosttest/dx_host_sdl`: the same program in a window,
+with sound, keyboard, mouse and gamepads through the firmware's input layer, on real time.
+[hosttest/README.md](hosttest/README.md) describes both programs in detail. The test
+program runs the engine with:
 
 - a heap the size of the board's free PSRAM;
 - the flash asset cache on emulated NOR flash (`DX_FCACHE=1`), mapped read-only outside

@@ -265,8 +265,9 @@ export PICO_PIO_USB_PATH=/path/to/Pico-PIO-USB
 ./buildAll.sh                                   # every release file into releases/
 ```
 
-The test program for a PC is built with `hosttest/build.sh`; see
-[TECHNICAL.md](TECHNICAL.md) for how the port works and how to test it.
+The test programs for a PC, one of which plays the game in a window, are built with
+`hosttest/build.sh`; see [hosttest/README.md](hosttest/README.md) for how to use them and
+[TECHNICAL.md](TECHNICAL.md) for how the port works.
 
 ## Credits
 

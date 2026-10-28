@@ -18,6 +18,14 @@
 //     game starts as on the board: dx_fatfs_init, then the board's arguments (dx_boot.c),
 //     followed by any given here. DX_SDCARD_FAIL and DX_SDCARD_TRACE: sdcard/sd_disk.c.
 //
+// dx_host_sdl is this file built with -DDX_HOST_SDL, plus dx_sdl.cpp and the firmware's
+// src/pico/dx_input.cpp: the same program in a window, with sound, keyboard, mouse and
+// gamepads, on real time. SDL_Delay sleeps and a present waits for the next 60 Hz vertical
+// blank, as on the board; the sound is mixed for a model of the board's sound ring and
+// queued on the sound device; input goes through the firmware's dx_input_poll. The flash asset cache is on
+// unless DX_FCACHE=0. Everything else above applies unchanged; frames and script lines
+// count presented frames.
+//
 // Usage:
 //   dx_host [DevilutionX options]                  run the game (e.g. --demo 0 --timedemo)
 //   dx_host --timedemo-test <fixture-dir> <data-dir>
@@ -57,6 +65,13 @@
 #include "utils/paths.h"
 #include "utils/ui_fwd.h"
 
+#ifdef DX_HOST_SDL
+#include <unistd.h>
+
+#include "dx_input.h"
+#include "dx_sdl.h"
+#endif
+
 namespace {
 
 // The harness's own files stay on the host in the SD card mode.
@@ -68,7 +83,9 @@ struct HostFiles {
 // ---- Clock -----------------------------------------------------------------------------
 
 timespec StartTime;
+#ifndef DX_HOST_SDL
 Uint32 VirtualOffset;
+#endif
 
 Uint32 RealMs()
 {
@@ -76,6 +93,15 @@ Uint32 RealMs()
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	return static_cast<Uint32>((now.tv_sec - StartTime.tv_sec) * 1000 + (now.tv_nsec - StartTime.tv_nsec) / 1000000);
 }
+
+#ifdef DX_HOST_SDL
+uint64_t RealUs()
+{
+	timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return static_cast<uint64_t>(now.tv_sec - StartTime.tv_sec) * 1000000 + (now.tv_nsec - StartTime.tv_nsec) / 1000;
+}
+#endif
 
 // ---- Screen ----------------------------------------------------------------------------
 
@@ -215,19 +241,12 @@ void RunScript()
 
 FILE *AudioWav;
 uint32_t AudioFrames;
-uint32_t AudioLastMs;
+uint32_t AudioLastMs; // dx_host
 uint32_t AudioPeak;
 
-void PullAudio(uint32_t nowMs)
+// Mixes frames (22050 Hz stereo) for DX_AUDIO_WAV and, in dx_host_sdl, the sound device.
+void MixAudio(uint32_t frames)
 {
-	if (AudioLastMs == 0 || nowMs < AudioLastMs) {
-		AudioLastMs = nowMs;
-		return;
-	}
-	uint32_t frames = (nowMs - AudioLastMs) * 22050 / 1000;
-	if (frames == 0)
-		return;
-	AudioLastMs += frames * 1000 / 22050;
 	static int16_t buf[2 * 4096];
 	while (frames > 0) {
 		uint32_t n = frames < 4096 ? frames : 4096;
@@ -239,10 +258,75 @@ void PullAudio(uint32_t nowMs)
 		}
 		if (AudioWav != nullptr)
 			fwrite(buf, 4, n, AudioWav);
+#ifdef DX_HOST_SDL
+		dx_sdl_queue_audio(buf, static_cast<int>(n));
+#endif
 		AudioFrames += n;
 		frames -= n;
 	}
 }
+
+#ifdef DX_HOST_SDL
+// dx_host_sdl models the board's sound ring (src/pico/dx_audio.c): it is played at
+// 22050 Hz but never past the last mixed frame (a stall such as a level load delays the
+// sound), and kept MixAhead frames mixed ahead of the play position. The sound device is
+// kept filled as well, but it does not set the pace: a device that plays slowly or not at
+// all (WSLg's sound server, for a while after it has been idle) cannot hold up the engine,
+// whose menus wait for their sounds to end.
+constexpr uint32_t MixAhead = 2048;             // frames (93 ms), MIX_AHEAD in dx_audio.c
+constexpr int DeviceMaxQueued = 4 * MixAhead; // more queued on the device: it is behind
+uint32_t RingPlayed;                            // frames, of AudioFrames mixed
+uint64_t RingLastUs;
+uint64_t RingRemainder; // the part of a frame played, in millionths
+
+void UpdateAudio()
+{
+	const uint64_t now = RealUs();
+	RingRemainder += (now - RingLastUs) * 22050;
+	RingLastUs = now;
+	RingPlayed = static_cast<uint32_t>(std::min<uint64_t>(AudioFrames, RingPlayed + RingRemainder / 1000000));
+	RingRemainder %= 1000000;
+	uint32_t frames = MixAhead - std::min(MixAhead, AudioFrames - RingPlayed);
+
+	int queued = dx_sdl_audio_queued();
+	if (queued > DeviceMaxQueued) {
+		dx_sdl_clear_audio(); // keeps the device's delay bounded
+		queued = 0;
+	}
+	if (queued >= 0 && queued < static_cast<int>(MixAhead))
+		frames = std::max(frames, MixAhead - static_cast<uint32_t>(queued));
+	MixAudio(frames);
+}
+#else
+// dx_host mixes as much as the clock has advanced since the last call.
+void UpdateAudio()
+{
+	const uint32_t nowMs = sdlb_ticks();
+	if (AudioLastMs == 0 || nowMs < AudioLastMs) {
+		AudioLastMs = nowMs;
+		return;
+	}
+	uint32_t frames = (nowMs - AudioLastMs) * 22050 / 1000;
+	if (frames == 0)
+		return;
+	AudioLastMs += frames * 1000 / 22050;
+	MixAudio(frames);
+}
+#endif
+
+#ifdef DX_HOST_SDL
+// As dx_display_present on the board: a frame is shown at the next vertical blank of the
+// 60 Hz output, and the sound is mixed meanwhile.
+void WaitVerticalBlank()
+{
+	constexpr uint64_t PeriodUs = 1000000 / 60;
+	const uint64_t vblank = (RealUs() / PeriodUs + 1) * PeriodUs;
+	for (uint64_t now = RealUs(); now < vblank; now = RealUs()) {
+		UpdateAudio();
+		usleep(static_cast<useconds_t>(std::min<uint64_t>(vblank - now, 1000)));
+	}
+}
+#endif
 
 void OpenAudioWav()
 {
@@ -494,12 +578,25 @@ void dx_prof_leave(int previous)
 
 Uint32 sdlb_ticks(void)
 {
+#ifdef DX_HOST_SDL
+	return RealMs();
+#else
 	return RealMs() + VirtualOffset;
+#endif
 }
 
 void sdlb_delay(Uint32 ms)
 {
+#ifdef DX_HOST_SDL
+	// as on the board: waiting keeps the sound mixed
+	const Uint32 start = RealMs();
+	do {
+		UpdateAudio();
+		usleep(1000);
+	} while (RealMs() - start < ms);
+#else
 	VirtualOffset += ms;
+#endif
 }
 
 // The board copies a presented frame in the background (src/pico/dx_display.c), so the
@@ -541,8 +638,13 @@ void sdlb_screen_free(void *pixels)
 
 void sdlb_present(const Uint8 *pixels, int pitch, int width, int height)
 {
-	PullAudio(sdlb_ticks());
+	UpdateAudio();
 	Frames++;
+#ifdef DX_HOST_SDL
+	WaitVerticalBlank();
+	dx_sdl_present(pixels, pitch, width, height, reinterpret_cast<const uint8_t *>(Palette));
+	dx_sdl_pump(); // keeps the window responsive while a level loads (no polls then)
+#endif
 	if (DumpEvery != 0 && Frames % DumpEvery == 0)
 		DumpFrame(pixels, pitch, width, height);
 	if (MaxFrames != 0 && Frames >= MaxFrames) {
@@ -566,8 +668,19 @@ void sdlb_set_palette(const SDL_Color *colors, int first, int count)
 
 void sdlb_poll(void)
 {
-	PullAudio(sdlb_ticks());
+	UpdateAudio();
+#ifdef DX_HOST_SDL
+	dx_sdl_pump();
+	if (dx_sdl_quit_requested())
+		sdlp_quit();
+	int x, y;
+	if (dx_sdl_mouse_position(&x, &y))
+		sdlp_mouse_position(x, y);
+#endif
 	RunScript();
+#ifdef DX_HOST_SDL
+	dx_input_poll();
+#endif
 }
 
 } // extern "C"
@@ -590,7 +703,32 @@ int main(int argc, char **argv)
 		SetupFlash(GameDataId(argv[3]));
 		return RunTimedemoTest(argv[2], argv[3]);
 	}
-	if (const char *image = getenv("DX_SDCARD")) {
+#ifdef DX_HOST_SDL
+	// as on the board, the flash asset cache is on unless DX_FCACHE says otherwise (the
+	// full game does not fit in PSRAM without it)
+	setenv("DX_FCACHE", "1", 0);
+#endif
+	const char *image = getenv("DX_SDCARD");
+	// The engine looks for its loose assets next to the executable (as SDL_GetBasePath()
+	// returns it); like on the board, use <data-dir>/assets/ instead.
+	for (int i = 1; image == nullptr && i + 1 < argc; i++) {
+		if (strcmp(argv[i], "--data-dir") == 0) {
+			const uint32_t dataId = GameDataId(argv[i + 1]);
+			if (dataId == 0) {
+				// the engine's own message does not say where it looked
+				fprintf(stderr, "dx_host: no DIABDAT.MPQ, diabdat.mpq or spawn.mpq in %s\n", argv[i + 1]);
+				return 2;
+			}
+			devilution::paths::SetAssetsPath(std::string(argv[i + 1]) + "/assets/");
+			SetupFlash(dataId);
+		}
+	}
+#ifdef DX_HOST_SDL
+	if (!dx_sdl_init())
+		return 2;
+	dx_input_init(); // as devilution_main on the board: joystick 0, the merged gamepads
+#endif
+	if (image != nullptr) {
 		if (dx_sdcard_attach(image) != 0)
 			return 2;
 		setvbuf(stdout, nullptr, _IOLBF, 0); // dx_fatfs_init's printf in order with the engine's log
@@ -611,14 +749,6 @@ int main(int argc, char **argv)
 		boardArgs.insert(boardArgs.end(), argv + 1, argv + argc);
 		boardArgs.push_back(nullptr);
 		return devilution::DiabloMain(static_cast<int>(boardArgs.size()) - 1, boardArgs.data());
-	}
-	// The engine looks for its loose assets next to the executable (as SDL_GetBasePath()
-	// returns it); like on the board, use <data-dir>/assets/ instead.
-	for (int i = 1; i + 1 < argc; i++) {
-		if (strcmp(argv[i], "--data-dir") == 0) {
-			devilution::paths::SetAssetsPath(std::string(argv[i + 1]) + "/assets/");
-			SetupFlash(GameDataId(argv[i + 1]));
-		}
 	}
 	return devilution::DiabloMain(argc, argv);
 }
