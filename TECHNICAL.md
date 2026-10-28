@@ -220,6 +220,16 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   is retasked as the 126 MHz HSTX clock (`dx_boot.c`). On the Pico Plus 2 board the
   native controller is the host, on the module's USB-C port as in pico_shared, pico-doom
   and pico-duke3D; it needs PLL_USB at 48 MHz, so the HSTX clock comes from clk_sys.
+- **PIO-USB and erratum RP2350-E9:** the Fruit Jam's RP2350 is an A2. On that revision, a
+  pad with its input enabled holds a line that has been high at about 2.2 V, and the
+  pull-down cannot bring it back. Pico-PIO-USB 0.7.2 switches the inputs off for 8 NOPs
+  before it reads the line state; at 378 MHz that is 21 ns, too short to drain the line.
+  A device was then often not found: D- stayed high, so D+ and D- read as SE1.
+  `dx_usb_frame.c` handles this on chips up to A2:
+  - while nothing is attached, it leaves the inputs off between frames and reads the
+    line state itself, after switching them back on;
+  - while a device is attached, it drains the lines for 5 µs every 16 frames, so that an
+    unplug reads as SE0.
 - **SDK and TinyUSB version:** the port is built with pico-sdk 2.2.0 and the TinyUSB it
   carries (0.18.0, commit 86ad6e56). A hub with a keyboard and mouse on the native
   controller was reliable with TinyUSB master of 2025-08-07 (5fb3c0996), whose driver for

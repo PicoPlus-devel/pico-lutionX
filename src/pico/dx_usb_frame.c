@@ -18,12 +18,24 @@
 // Boards with the native USB controller (no HAS_USBPIO) never call
 // dx_usb_frame_start: the controller sends SOFs by itself, also during a flash
 // write, so dx_usb_flash_begin only switches interrupts off there.
+//
+// RP2350-E9 (chips up to A2, such as the Fruit Jam's): a pad with its input
+// enabled keeps a line that was high at about 2.2 V, and the pull-down cannot
+// bring it back. Pico-PIO-USB switches the inputs off for 8 NOPs before it reads
+// the line state (21 ns at 378 MHz), too short to drain a line, and reads right
+// after switching them back on. On the Fruit Jam a mouse then often stayed
+// unseen: D- was latched, so D+ and D- both read high (SE1), never an idle state.
+// So while nothing is attached, the inputs stay off between frames (the lines
+// drain through the pull-downs) and the line state is also read here, with the
+// inputs settled. While a device is attached, the lines are drained for a few
+// microseconds every 16 frames, so that PIO-USB sees an unplug as SE0.
 
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
 #include "hardware/sync.h"
 #include "hardware/timer.h"
 #include "hardware/structs/nvic.h"
+#include "hardware/structs/pads_bank0.h"
 
 #include "pio_usb.h"
 #include "pio_usb_ll.h"
@@ -33,14 +45,82 @@
 #include "dx_input.h"
 
 #define SOF_ALARM	2		// hardware alarm for the 1 ms USB frame
+#define E9_DRAIN_FRAMES	16	// frames between drains while a device is attached
+#define E9_DRAIN_US	5
 
 static uint32_t			sof_next;
 static volatile bool	flash_busy;
 static bool				sof_started;
+static bool				e9;
+static uint32_t			e9_frames;
 static uint16_t			bare_frame;
 static uint8_t			bare_sof[4] = { USB_SYNC, USB_PID_SOF, 0, 0 };
 static uint8_t			bare_sof_encoded[4 * 2 * 7 / 6 + 2];
 static uint8_t			bare_keepalive[1];
+
+static void __not_in_flash_func(wait_us) (uint32_t us)
+{
+	uint32_t	start = timer_hw->timerawl;
+
+	while (timer_hw->timerawl - start <= us)
+		;
+}
+
+static void __not_in_flash_func(set_inputs) (const root_port_t *root, bool on)
+{
+	io_rw_32	*dp = &pads_bank0_hw->io[root->pin_dp];
+	io_rw_32	*dm = &pads_bank0_hw->io[root->pin_dm];
+
+	if (on)
+	{
+		hw_set_bits (dp, PADS_BANK0_GPIO0_IE_BITS);
+		hw_set_bits (dm, PADS_BANK0_GPIO0_IE_BITS);
+	}
+	else
+	{
+		hw_clear_bits (dp, PADS_BANK0_GPIO0_IE_BITS);
+		hw_clear_bits (dm, PADS_BANK0_GPIO0_IE_BITS);
+	}
+	(void)*dp;		// read back: the writes have reached the pads
+	(void)*dm;
+}
+
+// Before pio_usb_host_frame: drain the lines of an attached device now and then.
+static void __not_in_flash_func(e9_drain) (void)
+{
+	root_port_t	*root = PIO_USB_ROOT_PORT (0);
+
+	if (!(root->initialized && root->connected && !root->suspended) || ++e9_frames % E9_DRAIN_FRAMES)
+		return;
+	set_inputs (root, false);
+	wait_us (E9_DRAIN_US);
+	set_inputs (root, true);
+}
+
+// After pio_usb_host_frame: while nothing is attached, look for a J state (the
+// device's pull-up on D+ or D-) as pio_usb_host_frame does, then leave the inputs
+// off until the next frame.
+static void __not_in_flash_func(e9_connect) (void)
+{
+	root_port_t	*root = PIO_USB_ROOT_PORT (0);
+	bool		dp, dm;
+
+	if (!root->initialized || root->connected)
+		return;
+	set_inputs (root, true);
+	wait_us (1);
+	dp = !gpio_get (root->pin_dp);	// pio_usb_host_add_port inverts the inputs
+	dm = !gpio_get (root->pin_dm);
+	if (dp != dm)
+	{
+		root->is_fullspeed = dp;
+		root->connected = true;
+		root->suspended = true;		// a bus reset comes first
+		root->ints |= PIO_USB_INTS_CONNECT_BITS;
+		return;
+	}
+	set_inputs (root, false);
+}
 
 static void __not_in_flash_func(send_bare_sof) (void)
 {
@@ -74,6 +154,12 @@ static void __not_in_flash_func(sof_isr) (void)
 	timer_hw->alarm[SOF_ALARM] = sof_next;
 	if (flash_busy)
 		send_bare_sof ();
+	else if (e9)
+	{
+		e9_drain ();
+		pio_usb_host_frame ();
+		e9_connect ();
+	}
 	else
 		pio_usb_host_frame ();
 }
@@ -83,6 +169,7 @@ void dx_usb_frame_start (void)
 	unsigned	irq = hardware_alarm_get_irq_num (SOF_ALARM);
 
 	pio_usb_ll_encode_tx_data (NULL, 0, bare_keepalive);
+	e9 = rp2350_chip_version () <= 2;
 	hardware_alarm_claim (SOF_ALARM);
 	irq_set_exclusive_handler (irq, sof_isr);
 	irq_set_priority (irq, PICO_HIGHEST_IRQ_PRIORITY);
