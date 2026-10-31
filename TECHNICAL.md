@@ -299,8 +299,9 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 With the CMake option `DX_PERF_LOG` (for example
 `CMAKE_ARGS=-DDX_PERF_LOG=ON ./adafruitdvisd-build.sh`), the firmware writes a report to the
 UART every 5 seconds. It is off by default: `printf` waits for the UART, and at 115200 baud
-the report of about 1 KB holds core0 for some 90 ms, longer than the audio mix runs ahead,
-so the sound stutters while it is written. The report:
+the report of about 370 bytes holds core0 for some 32 ms. With the hot-code list as well
+(CMake option `DX_HOT_CODE`, see below) it is about 900 bytes and 80 ms, longer than the
+audio mix runs ahead, so the sound stutters while it is written. The report:
 
 ```
 status: 12.0 fps, heap 844/7522 KB (peak 1009), SRAM 40 KB free, stack 6120/16384 B core0 900/4096 B core1, frame copy 5.8 ms (max 7.1, 0 torn), cache 294 assets 7571 KB, 290 hits 4 stored, 40 KB written
@@ -329,10 +330,11 @@ time per frame (ms): other 2.1 logic 5.0 view 40.2 draw 6.0 copy 6.2 vsync 8.0 a
     - `audio`, `sd`, `input`, `flash`: the platform layer;
     - `other`: everything else (menus, level loading);
   - the hit rate of the 16 KB XIP cache that flash code, flash data and PSRAM share.
-- **Hot code:** core0's program counter, sampled 2000 times a second (TIMER0 alarm 0), as
-  the 40 busiest 16-byte blocks of code with their sample counts. The addresses only apply
-  to the ELF file of the same build:
-  `arm-none-eabi-addr2line -f -C -e pico_lutionx.elf 0x1004a3c0`.
+- **Hot code:** only with the CMake option `DX_HOT_CODE` as well (for example
+  `CMAKE_ARGS="-DDX_PERF_LOG=ON -DDX_HOT_CODE=ON" ./adafruitdvisd-build.sh`). Core0's
+  program counter, sampled 2000 times a second (TIMER0 alarm 0), as the 40 busiest 16-byte
+  blocks of code with their sample counts. The addresses only apply to the ELF file of the
+  same build: `arm-none-eabi-addr2line -f -C -e pico_lutionx.elf 0x1004a3c0`.
 
 ## The test program
 

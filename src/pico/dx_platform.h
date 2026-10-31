@@ -17,8 +17,9 @@ extern "C" {
 // DX_PERF_LOG=1 (CMake option DX_PERF_LOG): the UART output waits for every character, and
 // the report's 90 ms or so made the sound stutter.
 void dx_report_status(void);
-// Time per frame of each dx_prof zone since the last call, the XIP cache hit rate and the
-// busiest code addresses (dx_prof.c). dx_prof_start starts the program counter sampling.
+// Time per frame of each dx_prof zone since the last call, the XIP cache hit rate and, with
+// DX_HOT_CODE=1, the busiest code addresses (dx_prof.c). dx_prof_start starts the program
+// counter sampling (DX_HOT_CODE only).
 void dx_prof_report(uint32_t frames);
 void dx_prof_start(void);
 

@@ -416,7 +416,7 @@ int main(void)
 	dx_display_set_idle(dx_audio_idle); // mix ahead instead of waiting for the vertical blank
 	dx_nespad_init(); // before the USB timer, which polls the controller ports
 	dx_usb_init();
-#if DX_PERF_LOG
+#if DX_PERF_LOG && DX_HOT_CODE
 	dx_prof_start();
 #endif
 

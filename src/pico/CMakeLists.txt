@@ -52,11 +52,17 @@ option(DX_COPY_ON_CORE1 "Copy the frame to the front buffer on core1" OFF)
 # waits for the UART, and the report made the sound stutter.
 option(DX_PERF_LOG "Status and performance report on the UART every 5 seconds" OFF)
 
+# DX_HOT_CODE: with DX_PERF_LOG, sample core0's program counter 2000 times a second and add
+# the busiest code addresses to each report (dx_prof.c). Off by default: the list takes
+# some 45 ms to print.
+option(DX_HOT_CODE "Hot-code list in the DX_PERF_LOG report" OFF)
+
 target_compile_definitions(pico_lutionx PRIVATE
     DX_CPU_KHZ=${DX_CPU_KHZ}
     DX_VREG=${DX_VREG}
     DX_COPY_ON_CORE1=$<BOOL:${DX_COPY_ON_CORE1}>
     DX_PERF_LOG=$<BOOL:${DX_PERF_LOG}>
+    DX_HOT_CODE=$<BOOL:${DX_HOT_CODE}>
     PICO_STACK_SIZE=16384
     PICO_CORE1_STACK_SIZE=0
     DX_FCACHE_BASE=${DX_FCACHE_BASE}

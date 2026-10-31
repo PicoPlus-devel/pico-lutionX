@@ -2,9 +2,10 @@
 //   - the time per frame of each zone (src/port/dx_prof.h);
 //   - the hit rate of the 16 KB XIP cache that flash code, the flash asset cache and
 //     PSRAM share;
-//   - the hottest code: TIMER0 alarm 0 interrupts core0 2000 times a second and counts the
-//     interrupted program counter per 16 bytes of code; the report lists the busiest
-//     addresses, which the ELF file maps to functions (arm-none-eabi-addr2line -f).
+//   - with DX_HOT_CODE, the hottest code: TIMER0 alarm 0 interrupts core0 2000 times a
+//     second and counts the interrupted program counter per 16 bytes of code; the report
+//     lists the busiest addresses, which the ELF file maps to functions
+//     (arm-none-eabi-addr2line -f). Off by default: the list takes some 45 ms to print.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -15,6 +16,10 @@
 #include "hardware/structs/xip_ctrl.h"
 
 #include "dx_prof.h"
+
+#ifndef DX_HOT_CODE
+#define DX_HOT_CODE 0
+#endif
 
 static const char *const zone_names[DXP_COUNT] = {
 	"other", "logic", "view", "draw", "copy", "vsync", "audio", "sd", "input", "flash"
@@ -53,7 +58,8 @@ Program counter sampling
 ==============================================================================
 */
 
-#define SAMPLE_ALARM 0      // TIMER0 alarm 0 (dx_usb.cpp has 1, dx_usb_frame.c 2, the SDK 3)
+#if DX_HOT_CODE
+#define SAMPLE_ALARM 0     // TIMER0 alarm 0 (dx_usb.cpp has 1, dx_usb_frame.c 2, the SDK 3)
 #define SAMPLE_US 500
 #define PC_SLOTS 2048       // open addressing, in PSRAM (no SRAM to spare)
 #define PC_PROBES 16
@@ -150,6 +156,7 @@ static void report_pcs(void)
 		printf("%s%08lx:%lu", n % 8 ? " " : "\n ", (unsigned long)(top[n].key << 4), (unsigned long)top[n].count);
 	printf("\n");
 }
+#endif
 
 /*
 ==============================================================================
@@ -159,8 +166,8 @@ Report
 ==============================================================================
 */
 
-// Prints the time per frame of each zone since the last report, and clears it; then the
-// busiest code addresses.
+// Prints the time per frame of each zone since the last report, and clears it; then, with
+// DX_HOT_CODE, the busiest code addresses.
 void dx_prof_report(uint32_t frames)
 {
 	switch_to(current);
@@ -180,5 +187,7 @@ void dx_prof_report(uint32_t frames)
 	xip_ctrl_hw->ctr_acc = 0;
 	printf(", XIP cache %lu%% hits of %lu M accesses\n",
 	    (unsigned long)(accesses ? (uint64_t)hits * 100 / accesses : 0), (unsigned long)(accesses / 1000000));
+#if DX_HOT_CODE
 	report_pcs();
+#endif
 }
