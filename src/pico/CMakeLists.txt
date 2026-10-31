@@ -34,9 +34,9 @@ target_include_directories(pico_lutionx PRIVATE
 
 # PICO_STACK_SIZE: core0's stack (cmake/psram_linker.cmake puts it in its own 16 KB
 # region). Core1 is launched with its own stack array, so the SDK reserves none for it.
-# DX_CPU_KHZ: 378000 (default) or 504000; DX_VREG: core voltage for it.
-set(DX_CPU_KHZ "378000" CACHE STRING "System clock in kHz (a multiple of 126000)")
-if (DX_CPU_KHZ GREATER 378000)
+# DX_CPU_KHZ: 384000 (default) or 504000, see dx_boot.c; DX_VREG: core voltage for it.
+set(DX_CPU_KHZ "384000" CACHE STRING "System clock in kHz (a multiple of 48000, or 126000, 252000 or 504000)")
+if (DX_CPU_KHZ GREATER 384000)
     set(_dx_vreg_default VREG_VOLTAGE_1_70)		# as the emulators (pico_shared) at 504 MHz
 else()
     set(_dx_vreg_default VREG_VOLTAGE_1_50)

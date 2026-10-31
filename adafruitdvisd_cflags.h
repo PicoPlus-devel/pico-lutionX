@@ -26,8 +26,9 @@
 //   no HAS_USBPIO        the USB host is the RP2350's own controller, on the
 //                        module's USB-C port (through an OTG adapter or Y-cable),
 //                        as pico_shared builds this config by default and as
-//                        pico-doom and pico-duke3D do. PLL_USB stays at 48 MHz
-//                        for it, and clk_hstx runs from clk_sys (dx_boot.c).
+//                        pico-doom and pico-duke3D do. At 384 MHz its 48 MHz
+//                        is divided from PLL_SYS, and clk_hstx runs from
+//                        PLL_USB (dx_boot.c).
 //
 
 #define HW_CONFIG 2		// also selects nespad.cpp's PIO program (separate CLK/LAT per port)

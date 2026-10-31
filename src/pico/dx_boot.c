@@ -1,7 +1,7 @@
 // dx_boot.c -- RP2350 entry point for pico-lutionX.
 //
 // Early (from a runtime-init hook, before the C++ static constructors of the engine,
-// which already use engine globals in PSRAM and the PSRAM heap): clocks (378 MHz, clk_hstx
+// which already use engine globals in PSRAM and the PSRAM heap): clocks (384 MHz, clk_hstx
 // 126 MHz), PSRAM, the engine's PSRAM data and the heap. Then main(): the console, HSTX
 // video, the SD card and USB, and the engine's DiabloMain.
 //
@@ -109,23 +109,31 @@ Clocks
 ==============================================================================
 */
 
-// DX_CPU_KHZ must be a multiple of 126000 (126 MHz is clk_hstx: 25.2 MHz pixel clock):
-// 378000 (default) or 504000. DX_VREG is the core voltage (VREG_VOLTAGE_*).
+// DX_CPU_KHZ picks the source of clk_hstx (126 MHz: the 25.2 MHz pixel clock), by the same
+// rule as pico_shared's setClocksAndStartStdio():
+// - a multiple of 48 MHz, such as 384000 (the default): USB and ADC are divided from
+//   PLL_SYS, which leaves PLL_USB free to be a dedicated 126 MHz clk_hstx source;
+// - 126000, 252000 or 504000: clk_hstx is clk_sys / 1, 2 or 4, and PLL_USB keeps its
+//   48 MHz for USB.
+// Any other clock is refused. 378 MHz (clk_sys / 3) gives the TMDS bits an uneven duty
+// cycle, because clk_hstx has no duty-cycle correction for odd divisors: some displays
+// show that as dots. DX_VREG is the core voltage (VREG_VOLTAGE_*).
 #ifndef DX_CPU_KHZ
-#define DX_CPU_KHZ 378000
+#define DX_CPU_KHZ 384000
 #endif
 #ifndef DX_VREG
 #define DX_VREG VREG_VOLTAGE_1_50
 #endif
-#if DX_CPU_KHZ % 126000
-#error DX_CPU_KHZ must be a multiple of 126000
+#define DX_USB_ON_PLL_SYS (DX_CPU_KHZ % 48000 == 0 && DX_CPU_KHZ / 48000 <= 16)
+#if !DX_USB_ON_PLL_SYS && DX_CPU_KHZ != 126000 && DX_CPU_KHZ != 252000 && DX_CPU_KHZ != 504000
+#error DX_CPU_KHZ must be a multiple of 48000 (at most 768000), or 126000, 252000 or 504000
 #endif
 
 static void setup_clocks(void)
 {
-	// Flash clock at most 94.5 MHz, with the read sample delay scaled to stay at about
-	// the same time in ns; set before clk_sys is raised (as pico-quake2 and pico_shared).
-	const uint32_t flash_div = (DX_CPU_KHZ + 94499) / 94500 < 4 ? 4 : (DX_CPU_KHZ + 94499) / 94500;
+	// Flash clock at most 96 MHz (384 / 4), with the read sample delay scaled to stay at
+	// about the same time in ns; set before clk_sys is raised (as pico-quake2 and pico_shared).
+	const uint32_t flash_div = (DX_CPU_KHZ + 95999) / 96000 < 4 ? 4 : (DX_CPU_KHZ + 95999) / 96000;
 	const uint32_t rxdelay = (3 * DX_CPU_KHZ + 189000) / 378000;
 
 	vreg_disable_voltage_limit();
@@ -135,18 +143,21 @@ static void setup_clocks(void)
 	set_sys_clock_khz(DX_CPU_KHZ, true);
 	busy_wait_us(100000);
 
-#ifdef HAS_USBPIO
-	// clk_hstx from a retasked PLL_USB (756 / 6 = 126 MHz), which keeps PLL_SYS jitter
-	// off the TMDS clock. Only possible when the native USB controller is unused.
+#if DX_USB_ON_PLL_SYS
+	// Move USB and ADC to PLL_SYS (an exact integer divider) before PLL_USB is retuned,
+	// so neither ever sees it change; the native USB host keeps its 48 MHz. PLL_USB then
+	// becomes the 126 MHz clk_hstx source (756 / 6), with no divider at all.
+	clock_configure(clk_usb, 0, CLOCKS_CLK_USB_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
+	    DX_CPU_KHZ * 1000u, USB_CLK_HZ);
+	clock_configure(clk_adc, 0, CLOCKS_CLK_ADC_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
+	    DX_CPU_KHZ * 1000u, USB_CLK_HZ);
 	pll_deinit(pll_usb);
 	pll_init(pll_usb, 1, 756000000, 6, 1);
 	clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
 	    126000000u, 126000000u);
 #else
-	// The native USB controller is the host (HW_CONFIG 2) and needs PLL_USB at its
-	// 48 MHz, so clk_hstx comes from clk_sys (378 / 3 or 504 / 4 = 126 MHz), as in
-	// pico_shared and pico-doom on these boards. PLL_SYS jitter then rides on the TMDS
-	// clock, which strict HDMI displays can show as sparkles.
+	// clk_sys / 1, 2 or 4 (126, 252 or 504 MHz): no divider or an even one, so the TMDS
+	// bits keep an even duty cycle. PLL_USB is not touched and keeps its 48 MHz.
 	clock_configure(clk_hstx, 0, CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLK_SYS,
 	    DX_CPU_KHZ * 1000u, 126000000u);
 #endif

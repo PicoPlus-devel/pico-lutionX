@@ -216,14 +216,15 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 
 ## Input
 
-- **USB host:** Pico-PIO-USB on the Fruit Jam (`HAS_USBPIO`), where PLL_USB is free and
-  is retasked as the 126 MHz HSTX clock (`dx_boot.c`). On the Pico Plus 2 board the
+- **USB host:** Pico-PIO-USB on the Fruit Jam (`HAS_USBPIO`). On the Pico Plus 2 board the
   native controller is the host, on the module's USB-C port as in pico_shared, pico-doom
-  and pico-duke3D; it needs PLL_USB at 48 MHz, so the HSTX clock comes from clk_sys.
+  and pico-duke3D. At 384 MHz, a multiple of 48 MHz, both boards divide the USB and ADC
+  clocks from PLL_SYS and retask PLL_USB as the 126 MHz HSTX clock (`dx_boot.c`), so the
+  native controller keeps its 48 MHz.
 - **PIO-USB and erratum RP2350-E9:** the Fruit Jam's RP2350 is an A2. On that revision, a
   pad with its input enabled holds a line that has been high at about 2.2 V, and the
   pull-down cannot bring it back. Pico-PIO-USB 0.7.2 switches the inputs off for 8 NOPs
-  before it reads the line state; at 378 MHz that is 21 ns, too short to drain the line.
+  before it reads the line state; at 384 MHz that is 21 ns, too short to drain the line.
   A device was then often not found: D- stayed high, so D+ and D- read as SE1.
   `dx_usb_frame.c` handles this on chips up to A2:
   - while nothing is attached, it leaves the inputs off between frames and reads the
