@@ -4,8 +4,18 @@
 // surface, see dx_backend.cpp). Scanout never touches the QMI bus (flash and PSRAM),
 // which keeps the picture stable while flash is written and the engine streams from PSRAM.
 //
-// The frame copy: by default core0 waits for the vsync (mixing audio meanwhile) and copies
-// the back buffer itself. With DX_COPY_ON_CORE1, core1 copies it while core0 goes on with
+// The frame copy: by default core0 copies the back buffer itself, starting once the beam has
+// read row COPY_WINDOW_ROW of the refresh on screen and before the vsync (it mixes audio
+// while it waits). The copy runs top to bottom faster than the beam, so it only overwrites
+// rows this refresh has already shown, and from the vsync on it stays ahead of the beam.
+// This window is 6 ms long. A copy that starts at the vsync has only the 1.1 ms up to the
+// first active line, and a mixing call still running at the vsync (MP3 decoding, SD reads)
+// tore the picture: its top showed the previous frame for a refresh. A mixing call that
+// runs past the window delays the frame by a refresh instead. Each row also waits for the
+// beam if the copy catches up with it (a copy faster than about 5.7 ms), and frames the
+// beam reached first anyway are counted (dx_display_torn, on the status line).
+//
+// With DX_COPY_ON_CORE1, core1 copies it while core0 goes on with
 // input, game logic and audio. On HW_CONFIG 2 that gained nothing: both cores share the one
 // QSPI bus to flash and PSRAM, so the copy took 9-17 ms instead of 6 and slowed core0 by
 // as much as it saved (and above about 15 ms it falls behind the beam). With it:
@@ -66,6 +76,20 @@ static const uint8_t *volatile copy_src;
 static volatile int copy_pitch, copy_width, copy_rows, copy_row;
 static volatile uint32_t copy_start_us, copy_last_us, copy_max_us;
 
+// Where the beam is, for the copy on core0, in one word so that core0 reads both at once:
+// the refresh (frames) in the upper bits, the rows the scanline callback has read in it in
+// the lower ones (0 from the vsync, 480 from the last active line).
+#define BEAM_ROW_BITS 9
+#define BEAM_ROW_MASK ((1u << BEAM_ROW_BITS) - 1)
+#define BEAM_ROWS(b) ((b) & BEAM_ROW_MASK)
+#define BEAM_REFRESHES(b, b0) (((b) - ((b0) & ~BEAM_ROW_MASK)) >> BEAM_ROW_BITS) // since b0
+static volatile uint32_t beam;
+
+#define COPY_WINDOW_ROW 300 // the copy starts once the beam has read this row (6 ms before the vsync)
+#define COPY_WAIT_IDLE_US 16667 // mix while waiting for the window for at most a refresh, then spin
+#define COPY_WAIT_MAX_US 50000 // the beam has stopped (core1): copy anyway
+static uint32_t torn_frames;
+
 static bool copy_take(uint32_t to)
 {
 	uint32_t expected = COPY_PENDING;
@@ -81,6 +105,29 @@ static void __not_in_flash_func(copy_rows_to)(int end)
 	copy_row = end;
 }
 
+#if !DX_COPY_ON_CORE1
+// The copy on core0, started in the window of the refresh b0 was read in. Returns true if
+// the beam read a row of the next refresh before it was copied (a torn picture). Not
+// inlined, so that it stays in SRAM.
+static bool __noinline __not_in_flash_func(copy_with_beam)(const uint8_t *src, int pitch, int width, int height, uint32_t b0)
+{
+	const uint32_t t0 = time_us_32();
+	bool torn = false;
+
+	for (int y = 0; y < height; y++) {
+		uint32_t b = __atomic_load_n(&beam, __ATOMIC_ACQUIRE);
+		// in the refresh on screen: only rows the beam has read
+		while (BEAM_REFRESHES(b, b0) == 0 && BEAM_ROWS(b) <= (uint32_t)y && time_us_32() - t0 < COPY_WAIT_MAX_US)
+			b = __atomic_load_n(&beam, __ATOMIC_ACQUIRE);
+		// in the next one: only rows it has not read yet
+		if (BEAM_REFRESHES(b, b0) > 1 || (BEAM_REFRESHES(b, b0) == 1 && BEAM_ROWS(b) > (uint32_t)y))
+			torn = true;
+		memcpy(fb + y * FB_W, src + y * pitch, (size_t)width);
+	}
+	return torn;
+}
+#endif
+
 static void __not_in_flash_func(scanline_cb)(uint32_t v_scanline, uint32_t active_line, uint32_t *line_buffer)
 {
 	const uint8_t *src = fb + active_line * FB_W;
@@ -93,11 +140,14 @@ static void __not_in_flash_func(scanline_cb)(uint32_t v_scanline, uint32_t activ
 		line_buffer[i + 2] = pal[src[4]] | ((uint32_t)pal[src[5]] << 16);
 		line_buffer[i + 3] = pal[src[6]] | ((uint32_t)pal[src[7]] << 16);
 	}
+	// after the row is read: core0 may overwrite it from here
+	__atomic_store_n(&beam, (beam & ~BEAM_ROW_MASK) | (active_line + 1), __ATOMIC_RELEASE);
 }
 
 static void __not_in_flash_func(vsync_cb)(void)
 {
 	frames++;
+	__atomic_store_n(&beam, frames << BEAM_ROW_BITS, __ATOMIC_RELEASE);
 	if (pending_lut >= 0) {
 		lut_front = pending_lut;
 		pending_lut = -1;
@@ -205,6 +255,14 @@ void dx_display_copy_us(uint32_t *last, uint32_t *max)
 	copy_max_us = 0;
 }
 
+unsigned dx_display_torn(void)
+{
+	const unsigned n = torn_frames;
+
+	torn_frames = 0;
+	return n;
+}
+
 void dx_display_wait_copy(void)
 {
 	if (copy_state == COPY_IDLE)
@@ -281,21 +339,31 @@ void dx_display_present(const uint8_t *pixels, int pitch, int width, int height)
 	copy_rows = height;
 	__atomic_store_n(&copy_state, COPY_PENDING, __ATOMIC_RELEASE);
 #else
-	// Start right after a vsync (bounded in case core1 has stopped; the idle task mixes
-	// audio meanwhile), then stay ahead of the beam.
-	const uint32_t f = frames;
+	// Wait for the window (the idle task mixes audio meanwhile).
 	const int prof = dx_prof_enter(DXP_VSYNC);
 	uint32_t t0 = time_us_32();
-	while (frames == f && time_us_32() - t0 < 20000)
-		if (idle_task == NULL || !idle_task())
+	uint32_t b0 = beam;
+	bool beam_runs = video_up;
+	while (beam_runs && BEAM_ROWS(b0) < COPY_WINDOW_ROW) {
+		const uint32_t waited = time_us_32() - t0;
+		if (waited > COPY_WAIT_MAX_US)
+			beam_runs = false;
+		else if (waited > COPY_WAIT_IDLE_US || idle_task == NULL || !idle_task())
 			tight_loop_contents();
+		b0 = beam;
+	}
 	dx_prof_enter(DXP_COPY);
 	t0 = time_us_32();
-	copy_src = pixels;
-	copy_pitch = pitch;
-	copy_width = width;
-	copy_row = 0;
-	copy_rows_to(height);
+	if (beam_runs) {
+		if (copy_with_beam(pixels, pitch, width, height, b0))
+			torn_frames++;
+	} else {
+		copy_src = pixels;
+		copy_pitch = pitch;
+		copy_width = width;
+		copy_row = 0;
+		copy_rows_to(height);
+	}
 	const uint32_t us = time_us_32() - t0;
 	copy_last_us = us;
 	if (us > copy_max_us)

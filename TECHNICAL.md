@@ -171,11 +171,21 @@ uncached write goes straight to the PSRAM, and writes that follow on in address 
 chained into one QSPI transfer. The 300 KB drawn and copied each frame also stay out of the
 16 KB cache.
 
-On every frame, `dx_display_present` waits for the vertical blank (mixing audio meanwhile)
-and copies the back buffer into the front buffer in SRAM. The copy runs top to bottom
-faster than the beam, so it does not tear. It takes about 6.2 ms, limited by the PSRAM
-reads (a copy loop that loads 8 words at a time measured the same). The status line reports
-its duration.
+On every frame, `dx_display_present` copies the back buffer into the front buffer in SRAM.
+The copy starts once the beam has read row 300 of the picture on screen, in the last 6 ms
+before the vertical blank (the wait mixes audio). It runs top to bottom faster than the
+beam, so it only overwrites rows that this refresh has already shown, and after the
+vertical blank it stays ahead of the beam. Each row also waits for the beam in case the
+copy catches up with it. The copy takes about 6.2 ms, limited by the PSRAM reads (a copy
+loop that loads 8 words at a time measured the same). The status line reports its duration
+and the frames the beam reached first anyway.
+
+The copy used to start at the vertical blank. That left only the 1.1 ms up to the first
+visible line, and a mixing call (MP3 decoding, an SD card read, about 2 ms on average) that
+was still running at the vertical blank made the copy start later: the top of the picture
+showed the previous frame for one refresh. On a large screen this showed as tearing, most
+with Zoom off, where each wait has more audio to mix. A mixing call that runs past the
+window now delays the frame by one refresh instead.
 
 The copy can also run on core1 (CMake option `DX_COPY_ON_CORE1`, for example
 `CMAKE_ARGS=-DDX_COPY_ON_CORE1=ON ./adafruitdvisd-build.sh`), while core0 goes on with input,
@@ -293,7 +303,7 @@ the report of about 1 KB holds core0 for some 90 ms, longer than the audio mix r
 so the sound stutters while it is written. The report:
 
 ```
-status: 12.0 fps, heap 844/7522 KB (peak 1009), SRAM 40 KB free, stack 6120/16384 B core0 900/4096 B core1, frame copy 5.8 ms (max 7.1), cache 294 assets 7571 KB, 290 hits 4 stored, 40 KB written
+status: 12.0 fps, heap 844/7522 KB (peak 1009), SRAM 40 KB free, stack 6120/16384 B core0 900/4096 B core1, frame copy 5.8 ms (max 7.1, 0 torn), cache 294 assets 7571 KB, 290 hits 4 stored, 40 KB written
 time per frame (ms): other 2.1 logic 5.0 view 40.2 draw 6.0 copy 6.2 vsync 8.0 audio 9.1 sd 1.0 input 0.3 flash 0.0, XIP cache 92% hits of 410 M accesses
 ```
 
@@ -305,7 +315,8 @@ time per frame (ms): other 2.1 logic 5.0 view 40.2 draw 6.0 copy 6.2 vsync 8.0 a
   - the SRAM left for `malloc`;
   - the deepest use of both stacks;
   - how long the frame copy took (with the copy on core1, from the vertical blank; it
-    must stay below about 15 ms to keep ahead of the beam);
+    must stay below about 15 ms to keep ahead of the beam), and how many frames the beam
+    reached before the copy did, which tore the picture (the copy on core0 only);
   - the flash asset cache counters.
 - **Second line:**
   - the time of an average frame per zone (`src/port/dx_prof.h`). The zones nest, so each
@@ -313,8 +324,8 @@ time per frame (ms): other 2.1 logic 5.0 view 40.2 draw 6.0 copy 6.2 vsync 8.0 a
     - `logic`: the engine's game tick (`game_loop`);
     - `view`: the dungeon or town (`DrawView`);
     - `draw`: the rest of `DrawAndBlit`;
-    - `vsync` and `copy`: waiting for the vertical blank and copying the frame (with
-      the copy on core1, `vsync` is the wait for it);
+    - `vsync` and `copy`: waiting for the copy window before the vertical blank and
+      copying the frame (with the copy on core1, `vsync` is the wait for it);
     - `audio`, `sd`, `input`, `flash`: the platform layer;
     - `other`: everything else (menus, level loading);
   - the hit rate of the 16 KB XIP cache that flash code, flash data and PSRAM share.

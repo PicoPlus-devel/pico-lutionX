@@ -351,14 +351,14 @@ void dx_report_status(void)
 	uint32_t copy_us, copy_max_us;
 	dx_display_copy_us(&copy_us, &copy_max_us);
 	printf("status: %lu.%lu fps, heap %u/%u KB (peak %u), SRAM %u KB free, stack %u/%u B core0 %u/%u B core1, "
-	       "frame copy %lu.%lu ms (max %lu.%lu), "
+	       "frame copy %lu.%lu ms (max %lu.%lu, %u torn), "
 	       "cache %u assets %u KB, %u hits %u stored, %u KB written\n",
 	    (unsigned long)(frames * 1000 / (now - last_ms)), (unsigned long)((frames * 10000 / (now - last_ms)) % 10),
 	    (unsigned)(dx_heap_used() / 1024), (unsigned)(dx_heap_size() / 1024), (unsigned)(dx_heap_peak() / 1024),
 	    sram_heap_free() / 1024,
 	    stack_used(), (unsigned)((__StackTop - __StackLimit) * 4), dx_display_core1_stack_used(), 4096u,
 	    (unsigned long)(copy_us / 1000), (unsigned long)(copy_us % 1000 / 100),
-	    (unsigned long)(copy_max_us / 1000), (unsigned long)(copy_max_us % 1000 / 100),
+	    (unsigned long)(copy_max_us / 1000), (unsigned long)(copy_max_us % 1000 / 100), dx_display_torn(),
 	    fc.entries, fc.used_bytes / 1024, fc.hits, fc.stores, fc.bytes_programmed / 1024);
 	dx_prof_report(frames);
 	frames = 0;
