@@ -3,29 +3,67 @@
 A port of [DevilutionX](https://github.com/diasurgical/devilutionX), the open-source
 engine for Blizzard's Diablo, to boards built around the Raspberry Pi RP2350
 microcontroller: the Adafruit Fruit Jam, and a Pimoroni Pico Plus 2 with the Adafruit DVI
-and microSD breakouts (see [Boards](#boards)). The picture goes out over HDMI at 640×480,
-sound over HDMI or a headphone output, and the game is played with a USB keyboard and
-mouse or a gamepad. The game data is read from an SD card: the shareware data of Diablo
-(`spawn.mpq`) or the data of the full game (`DIABDAT.MPQ`).
+and microSD breakouts. The picture goes out over HDMI at 640×480, sound over HDMI or a
+headphone output, and the game is played with a USB keyboard and mouse or a gamepad. The
+game data is read from an SD card: the shareware data of Diablo (`spawn.mpq`) or the data
+of the full game (`DIABDAT.MPQ`).
 
 > [!WARNING]
-> **This is an early development version.** It has run on one board so far, the Pico
-> Plus 2 board (HW_CONFIG 2). With the Zoom setting the game runs at its normal speed;
-> without it, it runs somewhat slower than intended (see [Status](#status)). Reports
-> from the UART console are welcome.
+> **This is an early development version.** It has been tested on both supported boards,
+> the Pico Plus 2 board (HW_CONFIG 2) and the Fruit Jam (HW_CONFIG 8). With the Zoom
+> setting the game runs at its normal speed; without it, it runs somewhat slower than
+> intended (see [Zoom and frame rate](#zoom-and-frame-rate)). See [Status](#status) for
+> what has been tested. Reports from the UART console are welcome.
+
+## Features
+
+**Game**
+- Diablo in single player, with the shareware data (`spawn.mpq`) or the full game
+  (`DIABDAT.MPQ`). Network play and Hellfire are not supported.
+- Saved games are compatible with DevilutionX 1.5.5 on a PC. See [Saving](#saving).
+
+**Picture and sound**
+- 640×480 over HDMI. The [Zoom](#zoom-and-frame-rate) setting, on by default, shows the
+  dungeon at twice the size and keeps the game at its normal speed.
+- Music and sound effects over HDMI; on the Fruit Jam also through the headphone jack, on
+  the Pico Plus 2 board also through an optional PCM5100A DAC.
+
+**Controls**
+- A USB keyboard and mouse, USB gamepads (Xbox and other XInput pads, DualShock 4,
+  DualSense, Switch and generic USB pads), NES and SNES controllers and the original SNES
+  Mouse on the [PicoNES PCB](#picones-pcb), and the Wii Classic Controller on the Fruit
+  Jam. Every button of the Xbox, PlayStation, SNES and NES controllers has a function. See
+  [Controls](#controls).
+
+**Other**
+- The game's graphics and sounds are copied to the board's flash memory the first time
+  they are needed, so later loads are faster. See [The first start](#the-first-start).
+- Runs standalone, or under [pico-bootLoader](#with-pico-bootloader).
+- [Test programs for a PC](#test-programs-for-a-pc) that run the same game code with the
+  board's memory limits, for developers.
+
+See [Known limitations](#known-limitations) for what is not supported.
 
 ## Screenshots
 
-| | |
-|---|---|
-| ![The main menu](docs/screenshots/host_menu.png) | ![The town of Tristram](docs/screenshots/host_town.png) |
-| Main menu | Town |
-| ![The first level of the cathedral](docs/screenshots/host_level1.png) | ![The second level of the cathedral](docs/screenshots/host_level2.png) |
-| Cathedral, level 1 | Cathedral, level 2 |
+|   | Zoom on (default) | Zoom off |
+|---|---|---|
+| **Town** | ![The hero next to Griswold at his smithy in Tristram, Zoom on](docs/screenshots/town-zoom-on.png) | ![The hero next to Griswold at his smithy in Tristram, Zoom off](docs/screenshots/town-zoom-off.png) |
+| **Cathedral**<br>level 2 | ![The hero fighting Fallen Ones next to the stairs, Zoom on](docs/screenshots/cathedral-zoom-on.png) | ![The hero fighting Fallen Ones next to the stairs, Zoom off](docs/screenshots/cathedral-zoom-off.png) |
+| **Catacombs**<br>level 6 | ![The hero surrounded by goatmen of the Flesh Clan, Zoom on](docs/screenshots/catacombs-zoom-on.png) | ![The hero surrounded by goatmen of the Flesh Clan, Zoom off](docs/screenshots/catacombs-zoom-off.png) |
+| **Caves**<br>level 10 | ![The hero fighting a Horned Demon and Illusion Weavers, Zoom on](docs/screenshots/caves-zoom-on.png) | ![The hero fighting a Horned Demon and Illusion Weavers, Zoom off](docs/screenshots/caves-zoom-off.png) |
+| **Hell**<br>level 15 | ![The hero fighting Black Knights, Zoom on](docs/screenshots/hell-zoom-on.png) | ![The hero fighting Black Knights, Zoom off](docs/screenshots/hell-zoom-off.png) |
+| **Hell**<br>level 16 | ![Diablo attacking the hero, Zoom on](docs/screenshots/diablo-zoom-on.png) | ![Diablo attacking the hero, Zoom off](docs/screenshots/diablo-zoom-off.png) |
 
-The screenshots were rendered on a PC by the port's test program, which runs the same
-game code with the board's memory limits, its flash asset cache and its 8-bit palette
-picture.
+| Main menu | Character sheet and inventory |
+|---|---|
+| ![The main menu of DevilutionX](docs/screenshots/main-menu.png) | ![The character sheet and the inventory of a new warrior](docs/screenshots/character-inventory.png) |
+
+The screenshots show the full game. They were rendered on a PC by the port's test
+program, which runs the same game code with the board's memory limits and its flash asset
+cache, in the colours of the board's HDMI output. In the dungeon pictures a hero from the
+[test saves](testsaves/README.md) fights monsters that were placed next to it with
+DevilutionX's debug commands.
 
 ## Status
 
@@ -36,23 +74,17 @@ Verified on a Pimoroni Pico Plus 2 with the Adafruit DVI and microSD breakouts
 - The main menu, the town and the first level of the cathedral, including fighting.
 - Saving a game and loading it again.
 - A NES controller on a controller port.
-- A USB keyboard and a USB mouse on the USB-C port, and an original SNES Mouse on a
-  controller port.
+- A USB keyboard, a USB mouse and a DualShock 4 on the USB-C port, and an original SNES
+  Mouse on a controller port.
 - The game's graphics and sounds are copied to flash and used from there after a
   restart.
 
-Frame rates on the first level of the cathedral:
+Verified on the Adafruit Fruit Jam (HW_CONFIG 8):
 
-| Setting | Frames per second |
-|---|---|
-| Zoom on (Settings, Graphics, Zoom) | 27 to 32 |
-| Zoom off | 14 to 19 |
-
-Diablo's game logic advances in 20 steps per second and DevilutionX takes at most one step
-per frame, so below 20 frames per second the game runs correspondingly slower than
-intended. Zoom shows the dungeon at twice the size, and therefore a smaller part of it,
-which halves the work of drawing it. It is on by default on these boards and can be
-switched off in the settings. The main menu runs at about 25 frames per second.
+- Playing the game, with Zoom on and off.
+- The picture over HDMI, also on a 55-inch TV without tearing.
+- Sound through the headphone jack.
+- A USB keyboard, a USB mouse and a DualShock 4, found at every start.
 
 Verified in the test program on a PC (`hosttest/`), with the board's 8 MB of PSRAM:
 
@@ -66,34 +98,18 @@ Verified in the test program on a PC (`hosttest/`), with the board's 8 MB of PSR
 
 Not yet verified on a board:
 
-- the Fruit Jam, and its headphone jack;
-- USB gamepads, SNES controllers and the Wii extension port;
+- the Fruit Jam's Wii extension port;
+- USB gamepads other than the DualShock 4, and SNES controllers;
 - the second level of the cathedral;
-- the full game (`DIABDAT.MPQ`).
+- the full game (`DIABDAT.MPQ`) beyond loading it: it loads on the board, but has not
+  been tested completely.
 
-With the full game, the first visit to a level takes longer than later ones, because its
-graphics and sounds are written to flash. Its sound effects are stored in flash as 4-bit
-ADPCM, at half the size of the original 8-bit sound; a few of them sound slightly harsher
-than on a PC. Level 16 can run out of memory after long play (see "When something goes
-wrong"). Network play and Hellfire are not supported.
+## Getting started
 
-## Boards
+### What you need
 
-| Board | HW_CONFIG | Firmware file |
-|---|---|---|
-| Adafruit Fruit Jam | 8 | `pico-lutionX_fruitjam.uf2` |
-| Pimoroni Pico Plus 2 with the [Adafruit DVI Breakout](https://www.adafruit.com/product/4984) and [Adafruit MicroSD breakout](https://www.adafruit.com/product/254), on a breadboard or the PicoNES PCB | 2 | `pico-lutionX_adafruitdvisd.uf2` |
-
-Both boards need an RP2350 with 8 MB of PSRAM and 16 MB of flash. On the Pico Plus 2
-board, USB devices are connected to the USB-C port of the Pico Plus 2 through a USB OTG
-adapter or Y-cable, which also has to supply the board's power; NES or SNES controllers
-and an original SNES Mouse can be connected to the controller ports of the PicoNES PCB.
-On the Fruit Jam, a Wii Classic Controller (or a compatible pad) can be connected to its
-Wii extension port.
-
-## What you need
-
-- One of the boards above, an HDMI display and a microSD card (FAT32 or exFAT)
+- One of the [supported boards](#supported-boards), an HDMI display and a microSD card
+  (FAT32 or exFAT)
 - The game data: `spawn.mpq` (the shareware data) or `DIABDAT.MPQ` (from the Diablo CD
   or a digital copy)
 - A USB keyboard and mouse, or a USB gamepad; with several devices on one USB port, a
@@ -101,7 +117,7 @@ Wii extension port.
   as well.
 - Optionally, headphones (Fruit Jam) or a PCM5100A DAC (Pico Plus 2 board)
 
-## Installing
+### Installing
 
 1. Download the firmware for your board and `pico-lutionX_sdcard.zip` from the
    [releases page](https://github.com/PicoPlus-devel/pico-lutionX/releases).
@@ -111,10 +127,6 @@ Wii extension port.
 4. Hold the BOOTSEL button while connecting the board to a computer and copy the
    firmware (`.uf2`) to the drive that appears.
 5. Insert the SD card and restart the board.
-
-With pico-bootLoader, copy the bootloader build of the firmware to `/emu/<HW_CONFIG>/`
-on the bootloader's SD card instead of step 4; the game data stays in
-`roms/devilutionx`.
 
 ### The first start
 
@@ -145,6 +157,120 @@ The flash writing is therefore no practical risk to the board. Copies that are d
 or overwritten by another program that uses the same part of the flash (for example
 under pico-bootLoader), are detected by a checksum and copied again.
 
+### With pico-bootLoader
+
+With [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader), copy the
+bootloader build of the firmware to `/emu/<HW_CONFIG>/` on the bootloader's SD card
+instead of step 4; the game data stays in `roms/devilutionx`. Quitting the game, or any
+reset, returns to the boot menu. The bootloader builds are made with
+`./fruitjam-build-forbootloader.sh` and `./adafruitdvisd-build-forbootloader.sh` (see
+[Building from source](#building-from-source)).
+
+## Supported boards
+
+| Board | HW_CONFIG | Build command | Release binary |
+|---|---|---|---|
+| Adafruit [Fruit Jam](https://www.adafruit.com/product/6200) | 8 | `./fruitjam-build.sh` | `pico-lutionX_fruitjam.uf2` |
+| [Pimoroni Pico Plus 2](https://shop.pimoroni.com/products/pimoroni-pico-plus-2) with the [Adafruit DVI breakout](https://www.adafruit.com/product/4984) and [Adafruit microSD breakout](https://www.adafruit.com/product/254), on a breadboard or the [PicoNES PCB](#picones-pcb) | 2 | `./adafruitdvisd-build.sh` | `pico-lutionX_adafruitdvisd.uf2` |
+
+Both boards need an RP2350 with 8 MB of PSRAM and 16 MB of flash. The second board is
+the configuration the pico_shared emulators call HW_CONFIG 2. It must use a Pimoroni Pico
+Plus 2, or another RP2350B module with 8 MB of PSRAM on GPIO 47 and 16 MB of flash; a
+Raspberry Pi Pico 2 has no PSRAM and does not work.
+
+The hardware is the same as for the NES emulator, so the setup instructions are in the
+pico-infonesPlus readme:
+
+| Board | Setup instructions |
+|---|---|
+| Adafruit Fruit Jam | [Fruit Jam](https://github.com/PicoPlus-devel/pico-infonesPlus/blob/main/README.md#adafruit-fruit-jam) |
+| Pimoroni Pico Plus 2 on a breadboard with Adafruit breakouts, or on the PicoNES PCB | [Adafruit hardware and breadboard](https://github.com/PicoPlus-devel/pico-infonesPlus/blob/main/README.md#raspberry-pi-pico-or-pico-2-setup-with-adafruit-hardware-and-breadboard), [PicoNES PCB](#picones-pcb) |
+
+The Pico Plus 2 board is wired as follows:
+
+| Function | GPIO |
+|---|---|
+| Adafruit DVI breakout | D0+ 12, CK+ 14, D2+ 16, D1+ 18 (and the pins next to them) |
+| Adafruit microSD breakout | SCK 2, MOSI 3, MISO 4, CS 5 |
+| NES/SNES controller port 1 | CLK 6, DATA 7, LATCH 8 |
+| NES/SNES controller port 2 | CLK 9, DATA 10, LATCH 11 |
+| PCM5100A I2S DAC (optional) | DATA 26, BCK 27, LRCK 28 |
+| Serial console (optional) | TX 0, RX 1 |
+
+On the Pico Plus 2 board, USB devices are connected to the USB-C port of the Pico Plus 2
+through a USB OTG adapter or Y-cable, which also has to supply the board's power; NES or
+SNES controllers and an original SNES Mouse can be connected to the controller ports of
+the PicoNES PCB. On the Fruit Jam, USB devices go into its USB ports, and a Wii Classic
+Controller (or a compatible pad) can be connected to its Wii extension port.
+
+## PicoNES PCB
+
+The Pico Plus 2 board can be built on the PicoNES PCB by John Edgar Park instead of a
+breadboard, which turns it into a small console with two controller ports and a case.
+The PCB comes in two versions, which differ only in the controller ports: **v2.6** with
+NES controller ports and **v2.8** with SNES controller ports. Parts lists, ordering
+instructions, assembly notes, the pin assignment and the 3D-printed case are described in
+the [PCB README](https://github.com/PicoPlus-devel/pico_shared/blob/main/PCB/README.md).
+
+| Design | Picture | Controller ports | Designed by |
+|---|---|---|---|
+| PicoNES v2.6 | <img src="https://raw.githubusercontent.com/PicoPlus-devel/pico_shared/main/PCB/images/picones_v2.6_assembled.jpg" width="240" alt="PicoNES v2.6 with a Pimoroni Pico Plus 2"> | 2 × NES | [John Edgar Park](https://twitter.com/johnedgarpark) |
+| PicoNES v2.8 | <img src="https://raw.githubusercontent.com/PicoPlus-devel/pico_shared/main/PCB/images/picones_v2.8s_assembled.jpg" width="240" alt="PicoNES v2.8 with SNES controller ports"> | 2 × SNES | [John Edgar Park](https://twitter.com/johnedgarpark) |
+
+> [!NOTE]
+> The PicoNES v2.6 and v2.8 are shown with a Pimoroni Pico Plus 2. The game needs its
+> PSRAM and 16 MB of flash, so no other board can be fitted. The other designs in the PCB
+> README, the PicoNES Mini and PicoNES Micro, carry boards without PSRAM and cannot run
+> the game.
+
+> [!NOTE]
+> Sellers on AliExpress have copied the PicoNES design and sell ready-made boards. For
+> questions about those, contact the seller.
+
+- **Mounting.** The Pimoroni Pico Plus 2 must be mounted on male pin headers, because the
+  SP/CE connector on its back prevents it from lying flat. Optional female socket headers,
+  soldered into the PCB, let the board be plugged in and swapped without desoldering.
+- **Controllers.** On v2.8, SNES controllers plug in directly; on v2.6, NES controllers
+  do, and a SNES controller needs a
+  [SNES-to-NES adapter cable](https://github.com/PicoPlus-devel/pico-snesPlus/blob/main/snestonescontroller.md),
+  one per port. An original SNES Mouse can be used in either port in the same way. See
+  [Gamepad](#gamepad) for the layout. A USB keyboard, mouse or gamepad goes on the Pico
+  Plus 2's USB-C port through an OTG adapter or Y-cable (see
+  [Supported boards](#supported-boards)).
+- **Sound.** Over HDMI.
+- **microSD breakout.** The PCB is laid out for the smaller
+  [Adafruit Micro SD SPI or SDIO Card Breakout](https://www.adafruit.com/product/4682),
+  which uses the same GPIO as the breakout in the wiring table above.
+- **What to flash.** `pico-lutionX_adafruitdvisd.uf2`, the same file as for the
+  breadboard.
+
+The parts lists and assembly notes are in the PCB README:
+[PicoNES v2.6](https://github.com/PicoPlus-devel/pico_shared/blob/main/PCB/README.md#picones-v26-nes-controller-ports)
+and
+[PicoNES v2.8](https://github.com/PicoPlus-devel/pico_shared/blob/main/PCB/README.md#picones-v28-snes-controller-ports).
+
+| NES controller ports (v2.6) | SNES controller ports (v2.8) |
+|---|---|
+| <img src="https://raw.githubusercontent.com/PicoPlus-devel/pico_shared/main/PCB/images/picones_v2.6_assembled.jpg" width="400" alt="PicoNES v2.6 with NES controller ports"> | <img src="https://raw.githubusercontent.com/PicoPlus-devel/pico_shared/main/PCB/images/picones_v2.8s_assembled.jpg" width="400" alt="PicoNES v2.8 with SNES controller ports"> |
+
+### 3D printed case
+
+Gavin Knight ([DynaMight1124](https://github.com/DynaMight1124)) designed an NES-like case
+for the v2.6 PCB: [thingiverse.com/thing:6689537](https://www.thingiverse.com/thing:6689537).
+It does not fit the v2.8 PCB. Two top covers are available, one with a button that presses
+the BOOTSEL button for firmware updates and one without. All parts are shown in the
+[PCB README](https://github.com/PicoPlus-devel/pico_shared/blob/main/PCB/README.md#3d-printed-case).
+For questions about the case, please contact the designer on the Thingiverse page.
+
+> [!IMPORTANT]
+> Download the **latest** top cover. The Pimoroni Pico Plus 2 is always mounted on headers
+> here, and headers raise the board. Only the newest cover leaves room for the USB cable;
+> the older ones assume a Pico soldered flat onto the PCB.
+
+| Top cover | Base |
+|---|---|
+| <img src="https://github.com/user-attachments/assets/c6205db3-580e-41e9-83e4-66c9534c6519" width="380" alt="Top cover"> | <img src="https://github.com/user-attachments/assets/256bbd1b-b6db-485d-a59c-fd22fd017887" width="380" alt="Base with the PCB fitted"> |
+
 ## Controls
 
 The controls are those of DevilutionX.
@@ -156,6 +282,8 @@ button casts the selected spell. The keyboard shortcuts are those of the origina
 for example `I` for the inventory, `C` for the character sheet, `B` for the spell book,
 `Tab` for the map, `1`–`8` for the belt and `F1` for help. They can be changed in the
 settings of the main menu.
+
+### SNES Mouse
 
 On the Pico Plus 2 board, an original SNES Mouse can be used instead of, or together
 with, a USB mouse. It plugs into either controller port (a port for NES controllers needs
@@ -209,6 +337,25 @@ combinations with Select on a NES controller stand for the SNES buttons in the s
 of the table and follow such changes. A new hero can be created with a gamepad only: a
 name is filled in.
 
+## Zoom and frame rate
+
+Frame rates on the first level of the cathedral, on the Pico Plus 2 board:
+
+| Setting | Frames per second |
+|---|---|
+| Zoom on (Settings, Graphics, Zoom) | 27 to 32 |
+| Zoom off | 14 to 19 |
+
+On the Fruit Jam, a first measurement during play gave about 29 frames per second with
+Zoom on and about 21 with Zoom off.
+
+Diablo's game logic advances in 20 steps per second and DevilutionX takes at most one step
+per frame, so below 20 frames per second the game runs correspondingly slower than
+intended. Zoom shows the dungeon at twice the size, and therefore a smaller part of it,
+which halves the work of drawing it. It is on by default on these boards and can be
+switched off in the settings. The main menu runs at about 25 frames per second. The
+[screenshots](#screenshots) show both settings.
+
 ## Saving
 
 Games are saved in `roms/devilutionx` as DevilutionX saves them on a PC (`spawn_N.sv`,
@@ -223,6 +370,28 @@ the board, and select another hero.
 For testing, [testsaves/](testsaves/) holds one saved game per dungeon level (heroes
 `Level01` to `Level16`), which can be copied to `roms/devilutionx` to start directly on any
 level.
+
+## Known limitations
+
+- **Early development version.** Several features and controllers have not been tested
+  on a board yet; see [Status](#status).
+- **Frame rate.** Below 20 frames per second the game runs slower than intended. With Zoom
+  off this is the case on the Pico Plus 2 board; see
+  [Zoom and frame rate](#zoom-and-frame-rate).
+- **Slow first loads.** The first time a game and each new area load take about 10 to 20
+  seconds, while the graphics and sounds are copied to flash. With the full game, an area
+  that has not been visited for a while can take longer to load again. See
+  [The first start](#the-first-start).
+- **Sound effects of the full game.** They are stored in flash as 4-bit ADPCM, at half the
+  size of the original 8-bit sound; a few of them sound slightly harsher than on a PC.
+- **Level 16 of the full game can run out of memory** after long play. See
+  [When something goes wrong](#when-something-goes-wrong).
+- **The reset button of the Pico Plus 2** starts the board in BOOTSEL mode. See
+  [When something goes wrong](#when-something-goes-wrong).
+- **Single player only.** Network play and Hellfire are not supported.
+- **Overclocked.** The RP2350 runs at 384 MHz, more than twice its rated 150 MHz, with its
+  core voltage at 1.50 V, above the 1.30 V limit of the chip's regulator. Both are outside
+  the chip's specification. This has been reliable on the test boards so far.
 
 ## When something goes wrong
 
@@ -255,7 +424,9 @@ caches where entering it from the town failed every time. It is therefore advisa
 save the game soon after arriving on level 16. See [TECHNICAL.md](TECHNICAL.md), "The full
 game".
 
-## Building from source
+## For developers
+
+### Building from source
 
 ```sh
 export PICO_SDK_PATH=/path/to/pico-sdk          # version 2.2.0, with its TinyUSB 0.18.0
@@ -265,23 +436,112 @@ export PICO_PIO_USB_PATH=/path/to/Pico-PIO-USB
 ./buildAll.sh                                   # every release file into releases/
 ```
 
+### Test programs for a PC
+
 The test programs for a PC, one of which plays the game in a window, are built with
-`hosttest/build.sh`; see [hosttest/README.md](hosttest/README.md) for how to use them and
-[TECHNICAL.md](TECHNICAL.md) for how the port works.
+`hosttest/build.sh`; see [hosttest/README.md](hosttest/README.md) for how to use them.
+
+### Technical notes
+
+[TECHNICAL.md](TECHNICAL.md) describes how the port works: memory, the flash asset cache,
+video, sound and input, with the measured figures.
 
 ## Credits
 
-- DevilutionX by the [Diasurgical](https://github.com/diasurgical) contributors.
+- Ported by Frank Hoedemakers.
+
+### Game
+
+- [DevilutionX](https://github.com/diasurgical/devilutionX) by the
+  [Diasurgical](https://github.com/diasurgical) team and its contributors: the engine this
+  port runs. `3rdparty/devilutionX/` is a copy of release 1.5.5; every port change is
+  marked `pico-lutionX` in the source and listed in
+  [3rdparty/devilutionX/UPSTREAM.md](3rdparty/devilutionX/UPSTREAM.md). The licences of
+  DevilutionX's own assets are in `3rdparty/devilutionX/licenses/`.
+- DevilutionX is based on [Devilution](https://github.com/diasurgical/devilution), the
+  reconstructed source code of Diablo, started by GalaXyHaXz.
 - Diablo © Blizzard Entertainment. This project is not affiliated with or endorsed by
   Blizzard Entertainment. Diablo is a trademark of Blizzard Entertainment.
-- The platform layer follows pico-quake2 and pico-duke3D; the drivers come from
-  [pico_shared](https://github.com/fhoedemakers/pico_shared).
-- Libraries: libmpq, zlib, PKWARE DCL explode/implode (StormLib), {fmt}, SimpleIni,
-  dr_mp3 (David Reid), TLSF (Matthew Conte), TinyUSB, Pico-PIO-USB, FatFs, pico_hdmi.
 
-### Use of AI
+### Libraries bundled with DevilutionX
 
-The port was written with the help of Claude Code.
+In `3rdparty/dx-deps/` (see its [UPSTREAM.md](3rdparty/dx-deps/UPSTREAM.md)):
+
+- libmpq by **Maik Broemme**, in the [Diasurgical fork](https://github.com/diasurgical/libmpq):
+  reading the MPQ archives.
+- The PKWARE Data Compression Library implode and explode code from
+  [StormLib](https://github.com/ladislav-zezula/StormLib) by **Ladislav Zezula**: MPQ
+  sectors and saved games.
+- libsmackerdec by **Barry Duncan**, in the
+  [Diasurgical fork](https://github.com/diasurgical/libsmackerdec): Smacker videos.
+- [{fmt}](https://github.com/fmtlib/fmt) by **Victor Zverovich**.
+- [SimpleIni](https://github.com/brofield/simpleini) by **Brodie Thiesfield**: `diablo.ini`.
+- [tl::expected](https://github.com/TartanLlama/expected) and
+  [tl::function_ref](https://github.com/TartanLlama/function_ref) by **Sy Brand**.
+- The UTF-8 decoder of **Bjoern Hoehrmann**, in the version of **Taylor R Campbell**.
+- [zlib](https://zlib.net) by **Jean-loup Gailly** and **Mark Adler**: the compressed
+  `spawn.mpq` that DevilutionX distributes.
+- [dr_mp3](https://github.com/mackron/dr_libs) by **David Reid**, based on
+  [minimp3](https://github.com/lieff/minimp3) by **lieff**: the MP3 music and sounds of
+  `spawn.mpq`.
+
+### Drivers and libraries
+
+- The board drivers come from [pico_shared](https://github.com/PicoPlus-devel/pico_shared),
+  by way of [pico-quake2](https://github.com/PicoPlus-devel/pico-quake2) and
+  [pico-duke3D](https://github.com/PicoPlus-devel/pico-duke3D), whose platform layer this
+  port follows.
+- HSTX HDMI output with audio: [pico_hdmi](https://github.com/fliperama86/pico_hdmi) by
+  [fliperama86](https://github.com/fliperama86).
+- USB keyboard, mouse and gamepad handling: by
+  [Shuichi Takano](https://github.com/shuichitakano), from
+  [pico_lib](https://github.com/shuichitakano/pico_lib) by way of pico_shared.
+- USB host: [TinyUSB](https://github.com/hathach/tinyusb) by **Ha Thach** and its
+  contributors, [Pico-PIO-USB](https://github.com/sekigon-gonnoc/Pico-PIO-USB) by
+  [sekigon-gonnoc](https://github.com/sekigon-gonnoc), and
+  [tusb_xinput](https://github.com/Ryzee119/tusb_xinput) by **Ryan Wendland**
+  ([Ryzee119](https://github.com/Ryzee119)) for XInput controllers.
+- SD card: [pico_fatfs](https://github.com/elehobica/pico_fatfs) by
+  [elehobica](https://github.com/elehobica), on top of [FatFs](http://elm-chan.org/fsw/ff/)
+  by **ChaN**.
+- PSRAM: the setup follows [CircuitPython](https://github.com/adafruit/circuitpython) by
+  Adafruit and [PicoPlusPsram](https://github.com/AndrewCapon/PicoPlusPsram) by
+  [Andrew Capon](https://github.com/AndrewCapon).
+- Memory allocator: [TLSF](https://github.com/mattconte/tlsf) by **Matthew Conte**.
+- The TLV320DAC3100 codec register script used on the Fruit Jam is adapted from
+  [jepler/fruitjam-doom](https://github.com/jepler/fruitjam-doom) by **Jeff Epler**.
+- [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk) by Raspberry Pi Ltd.
+
+### Hardware
+
+- The **PicoNES PCB** was designed by **John Edgar Park**
+  ([@johnedgarpark](https://twitter.com/johnedgarpark)).
+- The **3D-printed case** for it was designed by **Gavin Knight**
+  ([DynaMight1124](https://github.com/DynaMight1124)).
+
+### Suggestions
+
+- [szuping](https://github.com/szuping) suggested looking at the PLL configuration of the
+  system clock, which led to the 384 MHz clock setup that keeps the HDMI picture free of
+  dots while the USB port of the Pico Plus 2 board keeps working.
+
+### AI assistance
+
+[Anthropic Claude Opus 5.5](https://www.anthropic.com/claude/opus), through
+[Claude Code](https://claude.com/claude-code), assisted with:
+
+- the platform layer: the SDL 1.2 subset, display, sound, input and SD card access on the
+  RP2350
+- fitting the game into the board's memory: the flash asset cache, monster graphics
+  loaded per animation, and sound effects stored as IMA ADPCM, so that all 16 levels of
+  the full game load
+- the frame rate: pixel loops in SRAM, the uncached back buffer and the row-wise Zoom
+- the SNES Mouse and the gamepad layout for Xbox, PlayStation, SNES and NES controllers
+- USB: the native USB host on the Pico Plus 2 board, the workaround for erratum RP2350-E9
+  in Pico-PIO-USB on the Fruit Jam, and SD card reads while USB devices enumerate
+- the 384 MHz clock setup, and the frame copy that keeps the picture free of tearing
+- the test programs for a PC (`hosttest/`) and the test saves
+- this readme, TECHNICAL.md, the changelog and the screenshots
 
 ## Licence
 
