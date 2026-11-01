@@ -16,7 +16,7 @@ study that preceded it is in [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
 | `src/port/` | the engine heap (`dx_heap`) and the flash asset cache (`dx_fcache`), shared by the board and the test program |
 | `src/pico/` | the RP2350 platform layer: boot, display, audio, SD card, flash, USB, NES/SNES and Wii pads |
 | `hosttest/` | the test programs for a PC: the same engine and SDL code on Linux (`-m32`), headless and in a window ([hosttest/README.md](hosttest/README.md)) |
-| `tools/` | measurement and release tools |
+| `tools/` | measurement and release tools, and the generators of pico-bootLoader's artwork and updateAll entries (see "pico-bootLoader") |
 
 The engine is built with `USE_SDL1`, `NONET`, an 8-bit screen surface with
 `SDL_DOUBLEBUF` (the engine then draws straight into it) and without the 128 KB black
@@ -507,6 +507,34 @@ it in the same session. Why the town load before it leaves too little room was n
 determined. On the board a failed load also leaves its flash writes behind; entries they
 overwrote fail their CRC on the next start and are loaded again.
 
+## pico-bootLoader
+
+`-DBUILD_FOR_BOOTLOADER=ON` (the `*-build-forbootloader.sh` scripts) links the firmware
+at `0x10080000`, behind the loader's 512 KB; the flash asset cache stays at `0x10300000`
+in both builds (cmake/BootPartition.cmake). The loader starts the firmware by jumping to
+its vector table, without a reset, so the firmware sets up its clocks, PSRAM and USB
+itself, as after a reset. Quitting resets the board with `watchdog_reboot(0, 0, 1)`; that
+clears the watchdog's resume flag, so the loader shows its menu instead of restarting
+the game.
+
+pico-bootLoader lists the firmware as *Diablo* (program name `pico-lutionX`, artwork key
+`diablo`) in `emu/emulators.txt` and in its Ports category, `emu/ports.txt`.
+`build_emulators.sh` builds it for HW_CONFIG 2 and 8 through the `SCRIPTED_*` tables:
+script `%s-build-forbootloader.sh`, build tree `build_bl_%s`, output `src/pico`, UF2
+`pico_lutionx.uf2`, installed as `pico-lutionX.uf2`; it needs `PICO_PIO_USB_PATH`.
+
+Two tools in this repository write pico-bootLoader's files:
+
+- `tools/mkartwork.py --bootloader ../pico-bootLoader/emu/assets` draws the menu
+  artwork, `themes/0/diablo.png` and `themes/1/diablo.png`, from `docs/screenshots`.
+  The loader's `tools/png2raw.py` then writes their `.444`/`.555` caches.
+- `tools/mkupdateall.py ../pico-bootLoader/updateAll/updateAll.json` writes two entries
+  in updateAll's `data` list, both installed in `/roms/devilutionx`: `diablo`, the files
+  of `pico-lutionX_sdcard.zip` from the release named in CHANGELOG.md, with their sizes
+  and CRC32s; and `diablo_spawn`, `spawn.mpq` from DevilutionX's own download. The sizes
+  and CRC32s are those of the archive that `tools/make_sdcard_zip.py` builds from the
+  current tree, so the tool is run again when the assets change before a release.
+
 ## Open items
 
 - **Board testing:** everything in the README's list of what has not been verified.
@@ -559,12 +587,6 @@ overwrote fail their CRC on the next start and are loaded again.
 - **Licences:** the drivers come from pico_shared (GPL-3.0) and libmpq is
   GPL-2.0-or-later. Neither may be distributed in one firmware with DevilutionX's licence
   (docs/FEASIBILITY.md, section 7). This must be settled before a release.
-- **pico-bootLoader registration:**
-  - an entry in `emu/emulators.txt` (`pico-lutionX;devilutionx;DevilutionX`) and in
-    `emu/ports.txt`;
-  - artwork in `emu/assets/themes/*/devilutionx.png` (plus `.444`/`.555`);
-  - entries in the `SCRIPTED_*` tables of `build_emulators.sh` (script
-    `%s-build-forbootloader.sh`, build `build_bl_%s`, output `src/pico`, UF2 name
-    `pico_lutionx`, hwconfigs `2 8`, PIO-USB);
-  - an updateAll entry that unpacks `pico-lutionX_sdcard.zip` and downloads `spawn.mpq`
-    to `/roms/devilutionx`.
+- **pico-bootLoader:** the bootloader builds have not run on a board yet. The updateAll
+  entry `diablo` downloads `pico-lutionX_sdcard.zip` from release v0.1-alpha, so that
+  release must exist before pico-bootLoader publishes the entry (see "pico-bootLoader").

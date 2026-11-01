@@ -5,7 +5,7 @@ engine for Blizzard's Diablo, to boards built around the Raspberry Pi RP2350
 microcontroller: the Adafruit Fruit Jam, and a Pimoroni Pico Plus 2 with the Adafruit DVI
 and microSD breakouts. The picture goes out over HDMI at 640×480, sound over HDMI or a
 headphone output, and the game is played with a USB keyboard and mouse or a gamepad. The
-game data is read from an SD card: the shareware data of Diablo (`spawn.mpq`) or the data
+game data is read from an SD card: the shareware data of Diablo ([spawn.mpq](https://github.com/diasurgical/devilutionx-assets/releases/latest/download/spawn.mpq)) or the data
 of the full game (`DIABDAT.MPQ`).
 
 > [!WARNING]
@@ -110,7 +110,7 @@ Not yet verified on a board:
 
 - One of the [supported boards](#supported-boards), an HDMI display and a microSD card
   (FAT32 or exFAT)
-- The game data: `spawn.mpq` (the shareware data) or `DIABDAT.MPQ` (from the Diablo CD
+- The game data: [spawn.mpq](https://github.com/diasurgical/devilutionx-assets/releases/latest/download/spawn.mpq) (the shareware data) or `DIABDAT.MPQ` (from the Diablo CD
   or a digital copy)
 - A USB keyboard and mouse, or a USB gamepad; with several devices on one USB port, a
   USB hub. On the Pico Plus 2 board, NES or SNES controllers and a SNES Mouse can be used
@@ -123,7 +123,7 @@ Not yet verified on a board:
    [releases page](https://github.com/PicoPlus-devel/pico-lutionX/releases).
 2. Unpack `pico-lutionX_sdcard.zip` to the root of the SD card. This creates
    `roms/devilutionx` with DevilutionX's own assets (fonts, interface and level data).
-3. Copy `spawn.mpq` or `DIABDAT.MPQ` into `roms/devilutionx`.
+3. Copy [spawn.mpq](https://github.com/diasurgical/devilutionx-assets/releases/latest/download/spawn.mpq) or `DIABDAT.MPQ` into `roms/devilutionx`.
 4. Hold the BOOTSEL button while connecting the board to a computer and copy the
    firmware (`.uf2`) to the drive that appears.
 5. Insert the SD card and restart the board.
@@ -159,12 +159,20 @@ under pico-bootLoader), are detected by a checksum and copied again.
 
 ### With pico-bootLoader
 
-With [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader), copy the
-bootloader build of the firmware to `/emu/<HW_CONFIG>/` on the bootloader's SD card
-instead of step 4; the game data stays in `roms/devilutionx`. Quitting the game, or any
-reset, returns to the boot menu. The bootloader builds are made with
-`./fruitjam-build-forbootloader.sh` and `./adafruitdvisd-build-forbootloader.sh` (see
-[Building from source](#building-from-source)).
+[pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader) lists the game as
+*Diablo* in its Ports category, on the Fruit Jam (HW_CONFIG 8) and on the Pico Plus 2
+board (HW_CONFIG 2). Its SD-card archive contains the bootloader build of the firmware,
+so step 4 is not needed. Its `updateAll` program installs DevilutionX's assets and the
+shareware data (`spawn.mpq`) in `roms/devilutionx`, in place of steps 1 to 3; for the
+full game, copy `DIABDAT.MPQ` into the same folder.
+
+Quit Game or Exit Diablo returns to the boot menu. On the Fruit Jam the reset button
+does so as well; on the Pico Plus 2 it can start the board in BOOTSEL mode, as without
+the bootloader (see [When something goes wrong](#when-something-goes-wrong)).
+
+To install a build by hand, copy it to `/emu/<HW_CONFIG>/` on the bootloader's SD card.
+The bootloader builds are made with `./fruitjam-build-forbootloader.sh` and
+`./adafruitdvisd-build-forbootloader.sh` (see [Building from source](#building-from-source)).
 
 ## Supported boards
 

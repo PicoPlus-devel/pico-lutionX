@@ -22,6 +22,9 @@ still runs slower than intended; see the README for what has been tested.
 - Graphics and sounds are copied to the board's flash memory the first time they are
   needed, so later loads are faster.
 - Saved games are compatible with DevilutionX 1.5.5 on a PC.
+- Can also be started from the menu of
+  [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader), where it is
+  listed as *Diablo* among the Ports.
 - The board runs at 384 MHz. At this clock the picture has no dots or lines on TVs and
   monitors that show them at 378 MHz, and the USB port of the Pico Plus 2 board keeps
   working. Thanks to @szuping for the hint that led to this.

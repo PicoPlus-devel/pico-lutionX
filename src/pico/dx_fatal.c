@@ -28,7 +28,7 @@ static void begin (void)
 static void __attribute__((noreturn)) finish (void)
 {
 #if BUILD_FOR_BOOTLOADER
-	printf ("\nPress RESET to return to the boot menu.\n");
+	printf ("\nPress RESET or power-cycle the board to return to the boot menu.\n");
 #else
 	printf ("\nPress RESET or power-cycle the board.\n");
 #endif
