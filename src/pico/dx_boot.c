@@ -397,6 +397,11 @@ int main(void)
 	printf("pico-lutionX on %s, built %s %s\n", DX_BOARD_NAME, __DATE__, __TIME__);
 	report_clocks();
 
+	// The SD card before the display: it holds the display mode (HDMI or DVI) to start
+	// in (dx_settings.c). The console keeps what is printed until the display shows it,
+	// and dx_fatal starts the display itself (in the board's default mode when there is
+	// no card).
+	dx_fatfs_init();
 	dx_display_init();
 	// The Wii pad port shares its I2C bus with the Fruit Jam's codec: bring the pad up
 	// (and quiet) before the codec is set up in dx_audio_init.
@@ -410,7 +415,6 @@ int main(void)
 	    (unsigned)((__psram_bss_end - __psram_data_start) / 1024),
 	    (unsigned)(heap_size / 1024), (unsigned)(dx_heap_used() / 1024));
 
-	dx_fatfs_init();
 	dx_flash_init(dx_fatfs_data_id());
 	dx_audio_init();
 	dx_display_set_idle(dx_audio_idle); // mix ahead instead of waiting for the vertical blank

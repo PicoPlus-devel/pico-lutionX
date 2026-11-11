@@ -50,6 +50,8 @@ set(FATFS_SOURCES ${FATFS_DIR}/ff.c ${FATFS_DIR}/ffsystem.c ${FATFS_DIR}/ffunico
 add_library(dx_sdcard OBJECT
   ${FATFS_SOURCES}
   ${PICO_LUTIONX_ROOT}/src/pico/dx_fatfs_io.c
+  ${PICO_LUTIONX_ROOT}/src/pico/dx_settings.c
+  ${PICO_LUTIONX_ROOT}/src/pico/pico_bootcfg.c
   ${SDCARD_DIR}/sd_disk.c
   ${SDCARD_DIR}/sd_host.c)
 target_include_directories(dx_sdcard PRIVATE ${SDCARD_DIR}/shim ${SDCARD_DIR} ${FATFS_DIR} ${FATFS_DIR}/conf

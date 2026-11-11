@@ -16,8 +16,10 @@ add_executable(pico_lutionx
     dx_input.cpp
     dx_nespad.cpp
     dx_prof.c
+    dx_settings.c
     dx_usb.cpp
     dx_usb_frame.c
+    pico_bootcfg.c
     dx_wiipad.cpp
     # the engine heap (PSRAM), shared with the host harness
     ${CMAKE_SOURCE_DIR}/src/port/dx_heap.cpp

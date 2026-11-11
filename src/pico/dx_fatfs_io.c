@@ -32,6 +32,7 @@
 
 #include "dx_fatfs_io.h"
 #include "dx_fatal.h"
+#include "dx_settings.h"
 #include "dx_input.h"
 #include "dx_platform.h"
 #include "dx_prof.h"
@@ -87,6 +88,9 @@ void dx_fatfs_init (void)
 	if (fr != FR_OK)
 		dx_fatal ("No SD card (FatFs error %d).\n"
 			"Insert a FAT/exFAT card with the game\ndata in " DX_DATA_DIR ".", fr);
+	// Before the display starts (dx_boot.c), so it starts in the right mode, and
+	// before the checks below, so their screens show in it.
+	dx_settings_load ();
 	fr = f_chdir (DX_DATA_DIR);
 	if (fr != FR_OK)
 		dx_fatal (DX_DATA_DIR " not found on the SD card.\n"

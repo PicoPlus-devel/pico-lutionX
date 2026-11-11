@@ -18,6 +18,9 @@
 #include "pfile.h"
 #include "qol/floatingnumbers.h"
 #include "utils/language.h"
+#ifdef DEVILUTIONX_PICO
+#include "dx_dispmode.h" // pico-lutionX
+#endif
 
 namespace devilution {
 namespace {
@@ -31,6 +34,9 @@ void GamemenuMusicVolume(bool bActivate);
 void GamemenuSoundVolume(bool bActivate);
 void GamemenuGamma(bool bActivate);
 void GamemenuSpeed(bool bActivate);
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+void GamemenuDisplay(bool bActivate);
+#endif
 
 /** Contains the game menu items of the single player menu. */
 TMenuItem sgSingleMenu[] = {
@@ -62,6 +68,9 @@ TMenuItem sgOptionsMenu[] = {
 	{ GMENU_ENABLED | GMENU_SLIDER, nullptr,             &GamemenuSoundVolume  },
 	{ GMENU_ENABLED | GMENU_SLIDER, N_("Gamma"),         &GamemenuGamma        },
 	{ GMENU_ENABLED | GMENU_SLIDER, N_("Speed"),         &GamemenuSpeed        },
+#ifdef DEVILUTIONX_PICO // pico-lutionX: HDMI or DVI, as in Settings > Graphics
+	{ GMENU_ENABLED               , nullptr,             &GamemenuDisplay      },
+#endif
 	{ GMENU_ENABLED               , N_("Previous Menu"), &GamemenuPrevious     },
 	{ GMENU_ENABLED               , nullptr,             nullptr               },
 	// clang-format on
@@ -175,6 +184,25 @@ void GamemenuGetSpeed()
 	gmenu_slider_set(&sgOptionsMenu[3], 20, 50, sgGameInitInfo.nTickRate);
 }
 
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+/** sgOptionsMenu index of the Display item. */
+constexpr size_t DisplayMenuItem = 4;
+
+void GamemenuGetDisplay()
+{
+	sgOptionsMenu[DisplayMenuItem].pszStr = dx_display_mode_get() != 0
+	    ? _("Display: DVI").data()
+	    : _("Display: HDMI").data();
+}
+
+/** Switches the picture at once and stores the choice (src/pico/dx_display.c). */
+void GamemenuDisplay(bool /*bActivate*/)
+{
+	dx_display_mode_set(dx_display_mode_get() != 0 ? 0 : 1);
+	GamemenuGetDisplay();
+}
+#endif
+
 int GamemenuSliderGamma()
 {
 	return gmenu_slider_get(&sgOptionsMenu[2], 30, 100);
@@ -186,6 +214,9 @@ void GamemenuOptions(bool /*bActivate*/)
 	GamemenuGetSound();
 	GamemenuGetGamma();
 	GamemenuGetSpeed();
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+	GamemenuGetDisplay();
+#endif
 	gmenu_set_items(sgOptionsMenu, nullptr);
 }
 

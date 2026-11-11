@@ -58,6 +58,24 @@ uint8_t LogoAnim_frame;
 void (*gmenu_current_option)();
 int sgCurrentMenuIdx;
 
+/**
+ * @brief How far the menu is drawn above its usual place.
+ *
+ * pico-lutionX: the in-game Options menu has a sixth item (Display, gamemenu.cpp). In
+ * the usual place that row would lie on the control panel, so a menu that does not fit
+ * above the panel is moved up by the difference, logo included. Menus of five items or
+ * fewer stay where they are.
+ */
+int GmenuLift()
+{
+#ifdef DEVILUTIONX_PICO
+	const int bottom = 110 + GetUIRectangle().position.y + sgCurrentMenuIdx * GMenuItemHeight;
+	return std::max(0, bottom - GetMainPanel().position.y);
+#else
+	return 0;
+#endif
+}
+
 void GmenuUpDown(bool isDown)
 {
 	if (sgpCurrItem == nullptr) {
@@ -249,7 +267,7 @@ void gmenu_draw(const Surface &out)
 				LogoAnim_tick = ticks;
 			}
 		}
-		int uiPositionY = GetUIRectangle().position.y;
+		int uiPositionY = GetUIRectangle().position.y - GmenuLift();
 		const ClxSprite sprite = (*sgpLogo)[LogoAnim_frame];
 		ClxDraw(out, { (gnScreenWidth - sprite.width()) / 2, 102 + uiPositionY }, sprite);
 		int y = 110 + uiPositionY;
@@ -325,7 +343,8 @@ bool gmenu_left_mouse(bool isDown)
 	if (sgpCurrentMenu == nullptr) {
 		return false;
 	}
-	const Point uiPosition = GetUIRectangle().position;
+	Point uiPosition = GetUIRectangle().position;
+	uiPosition.y -= GmenuLift();
 	if (MousePosition.y >= GetMainPanel().position.y) {
 		return false;
 	}

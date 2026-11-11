@@ -5,6 +5,18 @@ around the Raspberry Pi RP2350 microcontroller. The picture goes out over HDMI, 
 data is read from an SD card, and the game is played with a USB keyboard and mouse or a
 gamepad.
 
+## v0.2-alpha
+
+### Added
+
+- **DVI display mode**, for monitors and TVs that do not accept an HDMI signal. Choose
+  HDMI or DVI under *Settings → Graphics → Display Mode*, or during a game under
+  *Options → Display*; the picture switches at once and the choice is kept on the SD
+  card. DVI carries no sound: it plays on the board's own audio output instead (on the
+  Fruit Jam the speaker, or the headphones when plugged in).
+- Started from [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader),
+  the game uses the display mode set in the bootloader's menu.
+
 ## v0.1-alpha
 
 First test version. It has been tried on the Pico Plus 2 board only, where the game

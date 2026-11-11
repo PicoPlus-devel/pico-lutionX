@@ -33,6 +33,9 @@
 #include "utils/str_cat.hpp"
 #include "utils/str_split.hpp"
 #include "utils/utf8.hpp"
+#ifdef DEVILUTIONX_PICO
+#include "dx_dispmode.h" // pico-lutionX
+#endif
 
 namespace devilution {
 
@@ -823,6 +826,36 @@ void OptionEntryResolution::SetActiveListIndex(size_t index)
 	NotifyValueChanged();
 }
 
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+OptionEntryDisplayMode::OptionEntryDisplayMode()
+    : OptionEntryListBase("", OptionEntryFlags::None, N_("Display Mode"), N_("HDMI sends the sound to the monitor. DVI is for monitors that do not accept HDMI; the sound then plays on the board's audio output."))
+{
+}
+void OptionEntryDisplayMode::LoadFromIni(string_view /*category*/)
+{
+}
+void OptionEntryDisplayMode::SaveToIni(string_view /*category*/) const
+{
+}
+size_t OptionEntryDisplayMode::GetListSize() const
+{
+	return 2;
+}
+string_view OptionEntryDisplayMode::GetListDescription(size_t index) const
+{
+	return index != 0 ? "DVI" : "HDMI";
+}
+size_t OptionEntryDisplayMode::GetActiveListIndex() const
+{
+	return dx_display_mode_get() ? 1 : 0;
+}
+void OptionEntryDisplayMode::SetActiveListIndex(size_t index)
+{
+	dx_display_mode_set(index != 0 ? 1 : 0);
+	NotifyValueChanged();
+}
+#endif
+
 OptionEntryResampler::OptionEntryResampler()
     : OptionEntryListBase("Resampler", OptionEntryFlags::CantChangeInGame
               // When there are exactly 2 options there is no submenu, so we need to recreate the UI
@@ -1027,6 +1060,9 @@ std::vector<OptionEntryBase *> GraphicsOptions::GetEntries()
 	// clang-format off
 	return {
 		&resolution,
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+		&displayMode,
+#endif
 #ifndef __vita__
 		&fullscreen,
 #endif

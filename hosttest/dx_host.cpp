@@ -53,6 +53,7 @@
 #include "dx_fcache.h"
 #include "dx_heap.h"
 #include "dx_platform.h"
+#include "dx_dispmode.h"
 #include "dx_prof.h"
 #include "sd_host.h"
 #include "engine/demomode.h"
@@ -574,6 +575,20 @@ int dx_prof_enter(int zone)
 void dx_prof_leave(int previous)
 {
 	(void)previous;
+}
+
+// the display mode in the Graphics settings (src/port/dx_dispmode.h): on the board it
+// switches the HDMI output, here it only remembers the choice
+static int HostDisplayDvi;
+
+int dx_display_mode_get(void)
+{
+	return HostDisplayDvi;
+}
+
+void dx_display_mode_set(int dvi)
+{
+	HostDisplayDvi = dvi;
 }
 
 Uint32 sdlb_ticks(void)

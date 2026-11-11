@@ -20,6 +20,10 @@ int dx_audio_idle(void);
 void dx_audio_hold(void);
 void dx_audio_release(void);
 
+// After a switch between HDMI and DVI display mode (dx_display.c): the sound follows at
+// the next dx_audio_update (DVI has no audio on the cable, see dx_audio.c).
+void dx_audio_display_changed(void);
+
 #ifdef __cplusplus
 }
 #endif

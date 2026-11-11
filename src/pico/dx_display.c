@@ -43,9 +43,12 @@
 #include "video_output.h"
 #include "hstx_data_island_queue.h"
 
+#include "dx_audio.h"
 #include "dx_console.h"
 #include "dx_display.h"
+#include "dx_dispmode.h"
 #include "dx_prof.h"
+#include "dx_settings.h"
 
 #define FB_W 640
 #define FB_H 480
@@ -206,9 +209,11 @@ void dx_display_init(void)
 	load_console_palette(lut[0]);
 	lut_front = 0;
 
-	// HDMI mode, with data-island audio. The rate is set after video_output_init (which
-	// sets 48 kHz) and before core1 starts, since it rebuilds the blanking lines.
-	video_output_set_dvi_mode(false);
+	// HDMI or DVI as stored (dx_settings.c). HDMI carries data-island audio; its rate is
+	// set after video_output_init (which sets 48 kHz) and before core1 starts, since it
+	// rebuilds the blanking lines. The audio queue is set up in DVI mode as well, for a
+	// later switch.
+	video_output_set_dvi_mode(dx_settings_boot_dvi());
 	hstx_di_queue_init();
 	video_output_set_vsync_callback(vsync_cb);
 	video_output_init(FB_W, FB_H);
@@ -221,7 +226,21 @@ void dx_display_init(void)
 	video_up = true;
 
 	dx_console_show(fb, FB_W);
-	printf("dx_display: HSTX 640x480 up\n");
+	printf("dx_display: HSTX 640x480 %s up\n", video_output_get_dvi_mode() ? "DVI" : "HDMI");
+}
+
+int dx_display_mode_get(void)
+{
+	return video_output_get_dvi_mode();
+}
+
+// The HSTX DMA interrupt reads the mode on every scanline, so this is safe at any time.
+void dx_display_mode_set(int dvi)
+{
+	video_output_set_dvi_mode(dvi != 0);
+	dx_audio_display_changed();
+	dx_settings_save_display(dvi != 0);
+	printf("dx_display: %s\n", dvi ? "DVI" : "HDMI");
 }
 
 void dx_display_show_console(void)

@@ -9,12 +9,18 @@
 // core1 loop calls dx_audio_core1_task between scanline interrupts, which takes frames at
 // the play position, interpolates them to 44100 Hz and hands them to the active sink:
 //
-//   HDMI   data-island audio in the video signal (the default)
-//   jack   I2S to the TLV320 DAC, while headphones are plugged in
+//   HDMI   data-island audio in the video signal (HDMI display mode)
+//   jack   I2S to the board's DAC: on the Fruit Jam the headphones while they are plugged
+//          in, and in DVI display mode its speaker otherwise
 //
-// As in pico-duke3D, the Fruit Jam's speaker never plays, and the jack gets silence while
-// HDMI is active so the DAC's PLL stays locked and plugging in does not pop. A board whose
-// I2S DAC has no headphone detect (the PCM5100A of HW_CONFIG 2) plays to both sinks at once.
+// In HDMI mode the Fruit Jam's speaker never plays (as in pico-duke3D), and the jack gets
+// silence while HDMI is active so the DAC's PLL stays locked and plugging in does not pop.
+// A board whose I2S DAC has no headphone detect (the PCM5100A of HW_CONFIG 2) plays to both
+// sinks at once in HDMI mode.
+//
+// DVI display mode carries no audio, and the HSTX driver does not take data islands from
+// the queue then, so the HDMI sink is never used in it: everything goes to I2S
+// (apply_route). A board without a working DAC is silent in DVI mode.
 //
 // Play stops at the last mixed frame instead of wrapping into stale audio: when core0
 // stalls (level loading, flash writes) the sink gets silence.
@@ -67,6 +73,8 @@ static volatile uint32_t	painted_end;			// play_pos value up to which the ring i
 static bool				audio_up;
 static volatile sink_t	sink = SINK_HDMI;
 static bool				i2s_ok;
+static bool				hp_in;			// headphones plugged in (TLV320 jack detect)
+static volatile bool	route_dirty = true;	// sink to be decided again (core0)
 static int16_t			prev_l, prev_r;
 
 // core0 <-> core1 handshake around flash writes
@@ -210,6 +218,38 @@ Mixing (core0)
 ==============================================================================
 */
 
+// Picks the sink for the display mode and the jack, on core0 (codec I2C). Core1 only
+// reads `sink`.
+static void apply_route (void)
+{
+	bool	dvi = video_output_get_dvi_mode ();
+	sink_t	s;
+
+	route_dirty = false;
+	if (!i2s_ok)
+		s = SINK_HDMI;
+	else if (HAS_JACK_DETECT)
+	{
+		s = (dvi || hp_in) ? SINK_JACK : SINK_HDMI;
+		// HDMI: the monitor plays, the speaker never does. DVI: the speaker plays unless
+		// headphones are plugged in (the codec mutes it for them itself).
+		audio_i2s_muteInternalSpeaker (!dvi || hp_in);
+	}
+	else
+		s = dvi ? SINK_JACK : SINK_BOTH;
+	if (s != sink)
+	{
+		sink = s;
+		printf ("dx_audio: %s\n", s == SINK_HDMI ? "HDMI" : s == SINK_BOTH ? "HDMI and I2S"
+			: !HAS_JACK_DETECT ? "I2S" : hp_in ? "headphones" : "speaker");
+	}
+}
+
+void dx_audio_display_changed (void)
+{
+	route_dirty = true;
+}
+
 void dx_audio_init (void)
 {
 	memset (ring, 0, sizeof(ring));
@@ -226,11 +266,7 @@ void dx_audio_init (void)
 		audio_i2s_setVolume (14);
 		// a headset plugged in at boot arrives as the first poll's CONNECT
 	}
-	else
-	{
-		sink = SINK_BOTH;
-		printf ("dx_audio: HDMI and I2S\n");
-	}
+	apply_route ();
 
 	dx_display_set_core1_task (dx_audio_core1_task);	// after the frame copy slice
 	audio_up = true;
@@ -290,18 +326,15 @@ void dx_audio_update (void)
 		return;
 	mix_ahead (MIX_AHEAD, RING_FRAMES);
 
-	if (!i2s_ok || !HAS_JACK_DETECT)
-		return;
-	enum headphone_toggle_t	ev = tlv320_poll_headphone ();
-	if (ev == HP_TOGGLE_CONNECT)
+	if (i2s_ok && HAS_JACK_DETECT)
 	{
-		sink = SINK_JACK;
-		printf ("dx_audio: headphones\n");
+		enum headphone_toggle_t	ev = tlv320_poll_headphone ();
+		if (ev == HP_TOGGLE_CONNECT || ev == HP_TOGGLE_DISCONNECT)
+		{
+			hp_in = ev == HP_TOGGLE_CONNECT;
+			route_dirty = true;
+		}
 	}
-	else if (ev == HP_TOGGLE_DISCONNECT)
-	{
-		sink = SINK_HDMI;
-		audio_i2s_muteInternalSpeaker (true);	// the speaker never plays
-		printf ("dx_audio: HDMI\n");
-	}
+	if (route_dirty)
+		apply_route ();
 }

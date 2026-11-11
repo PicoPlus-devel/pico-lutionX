@@ -364,6 +364,23 @@ which halves the work of drawing it. It is on by default on these boards and can
 switched off in the settings. The main menu runs at about 25 frames per second. The
 [screenshots](#screenshots) show both settings.
 
+## Display mode
+
+The HDMI connector sends either an HDMI or a DVI signal. HDMI carries picture and sound.
+DVI carries the picture only and is meant for monitors and TVs that do not accept an HDMI
+signal; the sound then plays on the board's own audio output: on the Fruit Jam the
+speaker, or the headphones while they are plugged in, and on the Pico Plus 2 board the
+PCM5100A DAC if one is fitted.
+
+The mode is set under **Settings → Graphics → Display Mode** in the main menu, or during a
+game under **Options → Display** in the game menu. The picture switches at once, and the
+choice is stored in `/settings_DIABLO.dat` on the SD card. Without a stored choice
+the game starts in HDMI.
+
+When the game is started from [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader),
+it uses the display mode set in the bootloader's menu (`DISPLAY=` in `/boot.txt`) instead. A
+change made in the game then applies until the next start.
+
 ## Saving
 
 Games are saved in `roms/devilutionx` as DevilutionX saves them on a PC (`spawn_N.sv`,

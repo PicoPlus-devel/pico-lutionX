@@ -348,6 +348,23 @@ private:
 	void CheckResolutionsAreInitialized() const;
 };
 
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+/** @brief HDMI or DVI on the board's HDMI connector (src/port/dx_dispmode.h). Kept in the
+ * port's own settings file instead of diablo.ini: it is needed before the engine starts. */
+class OptionEntryDisplayMode : public OptionEntryListBase {
+public:
+	OptionEntryDisplayMode();
+
+	void LoadFromIni(string_view category) override;
+	void SaveToIni(string_view category) const override;
+
+	[[nodiscard]] size_t GetListSize() const override;
+	[[nodiscard]] string_view GetListDescription(size_t index) const override;
+	[[nodiscard]] size_t GetActiveListIndex() const override;
+	void SetActiveListIndex(size_t index) override;
+};
+#endif
+
 class OptionEntryResampler : public OptionEntryListBase {
 public:
 	OptionEntryResampler();
@@ -494,6 +511,9 @@ struct GraphicsOptions : OptionCategoryBase {
 	std::vector<OptionEntryBase *> GetEntries() override;
 
 	OptionEntryResolution resolution;
+#ifdef DEVILUTIONX_PICO // pico-lutionX
+	OptionEntryDisplayMode displayMode;
+#endif
 	/** @brief Run in fullscreen or windowed mode. */
 	OptionEntryBoolean fullscreen;
 #if !defined(USE_SDL1) || defined(__3DS__)
