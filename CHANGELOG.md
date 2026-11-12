@@ -13,9 +13,14 @@ gamepad.
   HDMI or DVI under *Settings → Graphics → Display Mode*, or during a game under
   *Options → Display*; the picture switches at once and the choice is kept on the SD
   card. DVI carries no sound: it plays on the board's own audio output instead (on the
-  Fruit Jam the speaker, or the headphones when plugged in).
-- Started from [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader),
-  the game uses the display mode set in the bootloader's menu.
+  Fruit Jam the speaker, or the headphones when plugged in; on the Pico Plus 2 board only
+  when a PCM5100A DAC is fitted).
+- **Waveshare RP2350-PiZero on the PCB by Liu Szuping** (@szuping) is now supported
+  (`pico-lutionX_pizeroliupcb.uf2`). Picture over the PCB's
+  HDMI port, sound over HDMI and the audio jack at the same time, a USB keyboard, mouse
+  or gamepad on the PiZero's PIO-USB port, and two NES/SNES controller ports. The game
+  needs 8 MB of PSRAM soldered onto the PiZero. Tested on this board. The PCB
+  design is not yet available.
 
 ## v0.1-alpha
 

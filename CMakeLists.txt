@@ -15,7 +15,9 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 #
 #   fruitjam      Adafruit Fruit Jam   (HW_CONFIG 8, PIO-USB, TLV320)
 #   adafruitdvisd Pico Plus 2 + Adafruit DVI and SD breakouts
-#                                      (HW_CONFIG 2, PIO-USB, PCM5100A, NES/SNES ports)
+#                                      (HW_CONFIG 2, native USB, PCM5100A, NES/SNES ports)
+#   pizeroliupcb  Waveshare RP2350-PiZero on Liu Szuping's PCB
+#                                      (HW_CONFIG 18, PIO-USB, PCM5102, NES/SNES ports)
 #
 set(DX_BOARD "fruitjam" CACHE STRING "Board tag: selects <tag>_cflags.h")
 if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DX_BOARD}_cflags.h")
@@ -60,6 +62,11 @@ option(DX_USB_LOG "TinyUSB host log on the UART" OFF)
 if (DX_USB_LOG)
     set(LOG 2)
 endif()
+
+# Board headers the pico-sdk does not ship (waveshare_rp2350_pizero for
+# HW_CONFIG 18, copied verbatim from pico_shared/boards). The SDK's own headers
+# are still found by name for every other board.
+list(APPEND PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards)
 
 include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
 

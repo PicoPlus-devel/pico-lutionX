@@ -212,7 +212,7 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   runs on core1 or in an interrupt.
 - **Output:** core1 plays the ring (`src/pico/dx_audio.c`, after pico-quake2's), doubles
   the rate to 44.1 kHz and feeds HDMI. On the Fruit Jam the jack takes over when
-  headphones are plugged in; on HW_CONFIG 2 HDMI and the I2S DAC both play.
+  headphones are plugged in; on HW_CONFIG 2 and 18 HDMI and the I2S DAC both play.
 - **Formats:** the `spawn.mpq` that DevilutionX distributes stores sounds and music as MP3.
   - **Music:** decoded while it plays (dr_mp3, `src/aulib/aulib_mp3.cpp`).
   - **Sound effects:** decoded once into IMA ADPCM in the flash asset cache
@@ -226,9 +226,11 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 
 ## Input
 
-- **USB host:** Pico-PIO-USB on the Fruit Jam (`HAS_USBPIO`). On the Pico Plus 2 board the
-  native controller is the host, on the module's USB-C port as in pico_shared, pico-doom
-  and pico-duke3D. At 384 MHz, a multiple of 48 MHz, both boards divide the USB and ADC
+- **USB host:** Pico-PIO-USB on the Fruit Jam (`HAS_USBPIO`, GPIO 1/2) and on the
+  RP2350-PiZero PCB (HW_CONFIG 18, GPIO 28/29, no VBUS switch; a hub on that port does not
+  work). On the Pico Plus 2 board the native controller is the host, on the module's USB-C
+  port as in pico_shared, pico-doom and pico-duke3D. At 384 MHz, a multiple of 48 MHz, all
+  boards divide the USB and ADC
   clocks from PLL_SYS and retask PLL_USB as the 126 MHz HSTX clock (`dx_boot.c`), so the
   native controller keeps its 48 MHz.
 - **PIO-USB and erratum RP2350-E9:** the Fruit Jam's RP2350 is an A2. On that revision, a
@@ -519,7 +521,7 @@ the game.
 
 pico-bootLoader lists the firmware as *Diablo* (program name `pico-lutionX`, artwork key
 `diablo`) in `emu/emulators.txt` and in its Ports category, `emu/ports.txt`.
-`build_emulators.sh` builds it for HW_CONFIG 2 and 8 through the `SCRIPTED_*` tables:
+`build_emulators.sh` builds it for HW_CONFIG 2, 8 and 18 through the `SCRIPTED_*` tables:
 script `%s-build-forbootloader.sh`, build tree `build_bl_%s`, output `src/pico`, UF2
 `pico_lutionx.uf2`, installed as `pico-lutionX.uf2`; it needs `PICO_PIO_USB_PATH`.
 
