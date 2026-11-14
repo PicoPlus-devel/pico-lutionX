@@ -236,6 +236,9 @@ module. The PCB design is not yet available.
 - **Video and sound.** The picture goes out over the HDMI port of the PCB; the mini HDMI
   port of the RP2350-PiZero is not used. Sound plays over HDMI and the audio jack of the
   PCB at the same time.
+- **Picture drop-outs.** During play, some TVs and monitors lose the picture for a few
+  seconds at a time, while others show it without interruption. This is a limitation of
+  the RP2350-PiZero at 384 MHz, the clock the game runs at.
 - **USB.** A USB keyboard, mouse or gamepad goes on the PIO-USB port of the
   RP2350-PiZero. A USB hub on that port does not work, so only one USB device can be used
   at a time. A SNES Mouse in a controller port can be used next to it.

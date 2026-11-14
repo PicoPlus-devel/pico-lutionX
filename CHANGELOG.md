@@ -21,6 +21,9 @@ gamepad.
   or gamepad on the PiZero's PIO-USB port, and two NES/SNES controller ports. The game
   needs 8 MB of PSRAM soldered onto the PiZero. Tested on this board. The PCB
   design is not yet available.
+  **Known issue:** on this board, some TVs and monitors lose the picture for a few seconds
+  at a time during play; others show it without interruption. This is a limitation of the
+  RP2350-PiZero at 384 MHz, the clock the game needs.
 
 ## v0.1-alpha
 
