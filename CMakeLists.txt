@@ -18,6 +18,8 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 #                                      (HW_CONFIG 2, native USB, PCM5100A, NES/SNES ports)
 #   pizeroliupcb  Waveshare RP2350-PiZero on Liu Szuping's PCB
 #                                      (HW_CONFIG 18, PIO-USB, PCM5102, NES/SNES ports)
+#   picocomputer3 Pico Computer 3      (HW_CONFIG 17, native USB, PCM5102, NES/SNES ports,
+#                                      Wii port)
 #
 set(DX_BOARD "fruitjam" CACHE STRING "Board tag: selects <tag>_cflags.h")
 if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DX_BOARD}_cflags.h")

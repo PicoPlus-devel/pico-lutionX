@@ -5,6 +5,17 @@ around the Raspberry Pi RP2350 microcontroller. The picture goes out over HDMI, 
 data is read from an SD card, and the game is played with a USB keyboard and mouse or a
 gamepad.
 
+## v0.3-alpha
+
+### Added
+
+- **[Pico Computer 3](https://github.com/UKTailwind/Pico-Computer-3)** is now supported
+  (`pico-lutionX_picocomputer3.uf2`). Picture over HDMI, sound over HDMI and the audio
+  jack at the same time, up to three USB devices (keyboard, mouse, gamepad) on the USB-A
+  ports, and two NES/SNES controllers and a Wii Classic Controller on the I/O header. Not
+  yet tested on this board, and the pin assignment may still change. Thanks to @javavi,
+  who added the board to pico_shared.
+
 ## v0.2-alpha
 
 ### Added

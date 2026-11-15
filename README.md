@@ -3,15 +3,16 @@
 A port of [DevilutionX](https://github.com/diasurgical/devilutionX), the open-source
 engine for Blizzard's Diablo, to boards built around the Raspberry Pi RP2350
 microcontroller: the Adafruit Fruit Jam, a Pimoroni Pico Plus 2 with the Adafruit DVI
-and microSD breakouts, and a Waveshare RP2350-PiZero on the PCB by Liu Szuping. The picture goes out over HDMI at 640×480, sound over HDMI or a
+and microSD breakouts, a Waveshare RP2350-PiZero on the PCB by Liu Szuping, and the Pico
+Computer 3. The picture goes out over HDMI at 640×480, sound over HDMI or a
 headphone output, and the game is played with a USB keyboard and mouse or a gamepad. The
 game data is read from an SD card: the shareware data of Diablo ([spawn.mpq](https://github.com/diasurgical/devilutionx-assets/releases/latest/download/spawn.mpq)) or the data
 of the full game (`DIABDAT.MPQ`).
 
 > [!WARNING]
 > **This is an early development version.** It has been tested on the Pico Plus 2 board
-> (HW_CONFIG 2), the Fruit Jam (HW_CONFIG 8) and the RP2350-PiZero PCB (HW_CONFIG 18). With
-> the Zoom
+> (HW_CONFIG 2), the Fruit Jam (HW_CONFIG 8) and the RP2350-PiZero PCB (HW_CONFIG 18), not
+> yet on the Pico Computer 3 (HW_CONFIG 17). With the Zoom
 > setting the game runs at its normal speed; without it, it runs somewhat slower than
 > intended (see [Zoom and frame rate](#zoom-and-frame-rate)). See [Status](#status) for
 > what has been tested. Reports from the UART console are welcome.
@@ -28,13 +29,15 @@ of the full game (`DIABDAT.MPQ`).
   dungeon at twice the size and keeps the game at its normal speed.
 - Music and sound effects over HDMI; on the Fruit Jam also through the headphone jack, on
   the Pico Plus 2 board also through an optional PCM5100A DAC, and on the RP2350-PiZero
-  PCB also through its audio jack. In [DVI mode](#display-mode) only those outputs play.
+  PCB and the Pico Computer 3 also through the audio jack. In [DVI mode](#display-mode)
+  only those outputs play.
 
 **Controls**
 - A USB keyboard and mouse, USB gamepads (Xbox and other XInput pads, DualShock 4,
   DualSense, Switch and generic USB pads), NES and SNES controllers and the original SNES
-  Mouse on the [PicoNES PCB](#picones-pcb) and the RP2350-PiZero PCB, and the Wii Classic
-  Controller on the Fruit Jam. Every button of the Xbox, PlayStation, SNES and NES controllers has a function. See
+  Mouse on the [PicoNES PCB](#picones-pcb) and the RP2350-PiZero PCB, NES and SNES
+  controllers on the [Pico Computer 3](#pico-computer-3), and the Wii Classic Controller on
+  the Fruit Jam and the Pico Computer 3. Every button of the Xbox, PlayStation, SNES and NES controllers has a function. See
   [Controls](#controls).
 
 **Other**
@@ -115,11 +118,12 @@ Not yet verified on a board:
 - The game data: [spawn.mpq](https://github.com/diasurgical/devilutionx-assets/releases/latest/download/spawn.mpq) (the shareware data) or `DIABDAT.MPQ` (from the Diablo CD
   or a digital copy)
 - A USB keyboard and mouse, or a USB gamepad; with several devices on one USB port, a
-  USB hub (not on the RP2350-PiZero PCB, see [Supported boards](#supported-boards)). On the
-  Pico Plus 2 board and the RP2350-PiZero PCB, NES or SNES controllers and a SNES Mouse
-  can be used as well.
-- Optionally, headphones (Fruit Jam and RP2350-PiZero PCB) or a PCM5100A DAC (Pico Plus 2
-  board)
+  USB hub (not on the RP2350-PiZero PCB, see [Supported boards](#supported-boards); the
+  Pico Computer 3 has one built in). On the Pico Plus 2 board and the RP2350-PiZero PCB,
+  NES or SNES controllers and a SNES Mouse can be used as well; on the Pico Computer 3,
+  NES or SNES controllers and a Wii Classic Controller.
+- Optionally, headphones (Fruit Jam, RP2350-PiZero PCB and Pico Computer 3) or a PCM5100A
+  DAC (Pico Plus 2 board)
 
 ### Installing
 
@@ -165,7 +169,8 @@ under pico-bootLoader), are detected by a checksum and copied again.
 
 [pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader) lists the game as
 *Diablo* in its Ports category, on the Fruit Jam (HW_CONFIG 8), on the Pico Plus 2
-board (HW_CONFIG 2) and on the RP2350-PiZero PCB (HW_CONFIG 18). Its SD-card archive contains the bootloader build of the firmware,
+board (HW_CONFIG 2) and on the RP2350-PiZero PCB (HW_CONFIG 18); the bootloader does not
+support the Pico Computer 3 yet. Its SD-card archive contains the bootloader build of the firmware,
 so step 4 is not needed. Its `updateAll` program installs DevilutionX's assets and the
 shareware data (`spawn.mpq`) in `roms/devilutionx`, in place of steps 1 to 3; for the
 full game, copy `DIABDAT.MPQ` into the same folder.
@@ -176,7 +181,8 @@ the bootloader (see [When something goes wrong](#when-something-goes-wrong)).
 
 To install a build by hand, copy it to `/emu/<HW_CONFIG>/` on the bootloader's SD card.
 The bootloader builds are made with `./fruitjam-build-forbootloader.sh`,
-`./adafruitdvisd-build-forbootloader.sh` and `./pizeroliupcb-build-forbootloader.sh` (see
+`./adafruitdvisd-build-forbootloader.sh`, `./pizeroliupcb-build-forbootloader.sh` and
+`./picocomputer3-build-forbootloader.sh` (see
 [Building from source](#building-from-source)).
 
 ## Supported boards
@@ -186,6 +192,7 @@ The bootloader builds are made with `./fruitjam-build-forbootloader.sh`,
 | Adafruit [Fruit Jam](https://www.adafruit.com/product/6200) | 8 | `./fruitjam-build.sh` | `pico-lutionX_fruitjam.uf2` |
 | [Pimoroni Pico Plus 2](https://shop.pimoroni.com/products/pimoroni-pico-plus-2) with the [Adafruit DVI breakout](https://www.adafruit.com/product/4984) and [Adafruit microSD breakout](https://www.adafruit.com/product/254), on a breadboard or the [PicoNES PCB](#picones-pcb) | 2 | `./adafruitdvisd-build.sh` | `pico-lutionX_adafruitdvisd.uf2` |
 | [Waveshare RP2350-PiZero](https://www.waveshare.com/rp2350-pizero.htm) on the PCB by Liu Szuping | 18 | `./pizeroliupcb-build.sh` | `pico-lutionX_pizeroliupcb.uf2` |
+| [Pico Computer 3](https://github.com/UKTailwind/Pico-Computer-3), not yet tested | 17 | `./picocomputer3-build.sh` | `pico-lutionX_picocomputer3.uf2` |
 
 Every board needs an RP2350 with 8 MB of PSRAM and 16 MB of flash. The second board is
 the configuration the pico_shared emulators call HW_CONFIG 2. It must use a Pimoroni Pico
@@ -200,6 +207,7 @@ pico-infonesPlus readme:
 | Adafruit Fruit Jam | [Fruit Jam](https://github.com/PicoPlus-devel/pico-infonesPlus/blob/main/README.md#adafruit-fruit-jam) |
 | Pimoroni Pico Plus 2 on a breadboard with Adafruit breakouts, or on the PicoNES PCB | [Adafruit hardware and breadboard](https://github.com/PicoPlus-devel/pico-infonesPlus/blob/main/README.md#raspberry-pi-pico-or-pico-2-setup-with-adafruit-hardware-and-breadboard), [PicoNES PCB](#picones-pcb) |
 | Waveshare RP2350-PiZero on the PCB by Liu Szuping | [PCB with Waveshare RP2350-PiZero](https://github.com/PicoPlus-devel/pico-infonesPlus/blob/main/README.md#pcb-with-waveshare-rp2350-pizero) |
+| Pico Computer 3 | [Pico Computer 3](https://github.com/PicoPlus-devel/pico-infonesPlus/blob/main/README.md#pico-computer-3), and [below](#pico-computer-3) |
 
 The Pico Plus 2 board is wired as follows:
 
@@ -250,6 +258,38 @@ module. The PCB design is not yet available.
   UART log is on GPIO 0 (TX) and GPIO 1 (RX).
 - **What to flash.** `pico-lutionX_pizeroliupcb.uf2`. The firmware for the RP2350-PiZero
   on its own does not work on this PCB.
+
+### Pico Computer 3
+
+The [Pico Computer 3](https://github.com/UKTailwind/Pico-Computer-3) (PC3) is an RP2350B
+computer board with an HDMI connector, a microSD card slot, 8 MB of PSRAM, 16 MB of flash
+memory, a USB hub and an audio jack. The pico_shared emulators call it HW_CONFIG 17.
+
+> [!NOTE]
+> The game has not yet been tested on this board. The pin assignment of the I/O header may
+> still change in a future release.
+
+- **Video and sound.** The picture goes out over the HDMI connector. Sound plays over HDMI
+  and the audio jack at the same time.
+- **USB.** A USB keyboard, mouse or gamepad goes in the USB-A ports, which are behind the
+  board's USB hub. Up to three USB devices can be used at the same time.
+- **Controllers.** Up to two NES or SNES controllers connect to the external I/O header
+  H4. Both ports share the clock and latch lines:
+
+  | | Clock | Latch | Data |
+  |:--|:--|:--|:--|
+  | Port 1 | GPIO 4 | GPIO 5 | GPIO 6 |
+  | Port 2 | GPIO 4 | GPIO 5 | GPIO 7 |
+
+  A Wii Classic Controller (or a compatible pad) connects to I2C0: SDA on GPIO 20 and SCL
+  on GPIO 21. A SNES Mouse is not supported on this board.
+- **Serial console.** The UART log is on UART1, GPIO 8 (TX) and GPIO 9 (RX).
+- **LED.** The heartbeat LED on GPIO 25 blinks while the game writes to flash, when jumper
+  H5 is set to 1-2.
+- **What to flash.** `pico-lutionX_picocomputer3.uf2`.
+
+Support for this board in the pico_shared emulators was contributed by
+[javavi](https://github.com/javavi).
 
 ## PicoNES PCB
 
@@ -333,8 +373,8 @@ settings of the main menu.
 
 ### SNES Mouse
 
-On the Pico Plus 2 board and the RP2350-PiZero PCB, an original SNES Mouse can be used
-instead of, or together with, a USB mouse. It plugs into either controller port (a port for NES controllers needs
+On the Pico Plus 2 board and the RP2350-PiZero PCB (not on the Pico Computer 3), an
+original SNES Mouse can be used instead of, or together with, a USB mouse. It plugs into either controller port (a port for NES controllers needs
 a SNES-to-NES adapter cable), and a controller can be used in the other port at the same
 time. Its two buttons are the left and right mouse buttons. The board sets the mouse to
 its lowest sensitivity when it is connected. The cursor moves about 200 pixels per inch
@@ -410,7 +450,8 @@ The HDMI connector sends either an HDMI or a DVI signal. HDMI carries picture an
 DVI carries the picture only and is meant for monitors and TVs that do not accept an HDMI
 signal; the sound then plays on the board's own audio output: on the Fruit Jam the
 speaker, or the headphones while they are plugged in, on the Pico Plus 2 board the
-PCM5100A DAC if one is fitted, and on the RP2350-PiZero PCB the audio jack.
+PCM5100A DAC if one is fitted, and on the RP2350-PiZero PCB and the Pico Computer 3 the
+audio jack.
 
 The mode is set under **Settings → Graphics → Display Mode** in the main menu, or during a
 game under **Options → Display** in the game menu. The picture switches at once, and the
@@ -464,7 +505,7 @@ level.
 
 Errors that stop the game are shown on the screen. The board also writes a log to its
 UART (GPIO 0 on the Pico Plus 2 and the RP2350-PiZero PCB, GPIO 44 on the Fruit Jam,
-115200 baud) with the start-up,
+GPIO 8 on the Pico Computer 3, 115200 baud) with the start-up,
 the loading of the game data and any errors. A firmware built with the option
 `DX_PERF_LOG` adds a status line every 5 seconds with the frame rate, the memory use and
 where the time of a frame is spent (see [TECHNICAL.md](TECHNICAL.md)); writing it
@@ -499,7 +540,8 @@ game".
 ```sh
 export PICO_SDK_PATH=/path/to/pico-sdk          # version 2.2.0, with its TinyUSB 0.18.0
 export PICO_PIO_USB_PATH=/path/to/Pico-PIO-USB
-./fruitjam-build.sh                             # or ./adafruitdvisd-build.sh, ./pizeroliupcb-build.sh
+./fruitjam-build.sh                             # or ./adafruitdvisd-build.sh, ./pizeroliupcb-build.sh,
+                                                # ./picocomputer3-build.sh
 ./fruitjam-build-forbootloader.sh               # pico-bootLoader variant
 ./buildAll.sh                                   # every release file into releases/
 ```

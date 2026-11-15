@@ -212,7 +212,7 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   runs on core1 or in an interrupt.
 - **Output:** core1 plays the ring (`src/pico/dx_audio.c`, after pico-quake2's), doubles
   the rate to 44.1 kHz and feeds HDMI. On the Fruit Jam the jack takes over when
-  headphones are plugged in; on HW_CONFIG 2 and 18 HDMI and the I2S DAC both play.
+  headphones are plugged in; on HW_CONFIG 2, 17 and 18 HDMI and the I2S DAC both play.
 - **Formats:** the `spawn.mpq` that DevilutionX distributes stores sounds and music as MP3.
   - **Music:** decoded while it plays (dr_mp3, `src/aulib/aulib_mp3.cpp`).
   - **Sound effects:** decoded once into IMA ADPCM in the flash asset cache
@@ -229,7 +229,9 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
 - **USB host:** Pico-PIO-USB on the Fruit Jam (`HAS_USBPIO`, GPIO 1/2) and on the
   RP2350-PiZero PCB (HW_CONFIG 18, GPIO 28/29, no VBUS switch; a hub on that port does not
   work). On the Pico Plus 2 board the native controller is the host, on the module's USB-C
-  port as in pico_shared, pico-doom and pico-duke3D. At 384 MHz, a multiple of 48 MHz, all
+  port as in pico_shared, pico-doom and pico-duke3D, and on the Pico Computer 3
+  (HW_CONFIG 17, not yet tested) behind the board's four-port hub (`tusb_config.h` allows
+  one hub and three devices). At 384 MHz, a multiple of 48 MHz, all
   boards divide the USB and ADC
   clocks from PLL_SYS and retask PLL_USB as the 126 MHz HSTX clock (`dx_boot.c`), so the
   native controller keeps its 48 MHz.
@@ -292,9 +294,18 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   the state machine then waits forever, and after the interrupts were off (a flash erase,
   a USB device enumerating) the 4 ms timer runs the missed ticks back to back. Before
   this, the ports could be disabled after a level load ("a read never completed").
-- **Wii pad (Fruit Jam):** read in thread context every 10 ms (`dx_wiipad.cpp`, after
-  pico-duke3D's), because it shares the I2C bus with the TLV320 codec. It is brought up
-  before the codec.
+- **Wii pad (Fruit Jam, Pico Computer 3):** read in thread context every 10 ms
+  (`dx_wiipad.cpp`, after pico-duke3D's), because on the Fruit Jam it shares the I2C bus
+  with the TLV320 codec. It is brought up before the codec. On the Pico Computer 3 it is on
+  the board's system I2C (I2C0, GPIO 20/21), with the RTC and without a codec.
+- **Pico Computer 3 (HW_CONFIG 17):** `picocomputer3_cflags.h`, `PICO_BOARD`
+  `weact_studio_rp2350b_core` (in the pico-sdk). Its default UART, UART0 on GPIO 12/13, are
+  HSTX pins, so the console is UART1 on GPIO 8/9, and the hardfault breadcrumb in
+  `dx_boot.c` writes to `uart_default`. The two controller ports on the I/O header share
+  CLK 4 and LAT 5 (DATA 6 and 7), so `HW_CONFIG 17` selects the shared-pin PIO program in
+  the vendored `nespad.cpp`, as on the Murmulator. That program lacks the timing the SNES
+  Mouse needs, so `NESPAD_SNES_MOUSE` is off on this board. SD on SPI1 (SCK 30, MOSI 31,
+  MISO 28, CS 33), PCM5102 on GPIO 10/11 and 22, PSRAM CS 47.
 
 ## The status line
 
@@ -521,7 +532,8 @@ the game.
 
 pico-bootLoader lists the firmware as *Diablo* (program name `pico-lutionX`, artwork key
 `diablo`) in `emu/emulators.txt` and in its Ports category, `emu/ports.txt`.
-`build_emulators.sh` builds it for HW_CONFIG 2, 8 and 18 through the `SCRIPTED_*` tables:
+`build_emulators.sh` builds it for HW_CONFIG 2, 8 and 18 (not yet 17) through the
+`SCRIPTED_*` tables:
 script `%s-build-forbootloader.sh`, build tree `build_bl_%s`, output `src/pico`, UF2
 `pico_lutionx.uf2`, installed as `pico-lutionX.uf2`; it needs `PICO_PIO_USB_PATH`.
 
