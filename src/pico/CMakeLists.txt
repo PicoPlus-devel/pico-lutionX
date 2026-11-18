@@ -110,6 +110,34 @@ pico_enable_stdio_usb(pico_lutionx 0)
 
 dx_use_psram_linker_script(pico_lutionx)
 
+# Pico SDK 2.3 adds two small SRAM users that this port does not need; both
+# options are unknown to, and ignored by, older SDKs.
+#   PICO_THREAD_LOCAL_CORE1_REINITIALIZE=0: core 1's thread-local variables are
+#     not reset when core 1 is launched again. Core 1 is launched once here, and
+#     the only thread_local is devilutionX's dwLastError, an error code (saves 8
+#     bytes on Arm).
+#   PICO_SYNC_EXCLUSIVE_ACCESS_EVENT_WORKAROUND=0: RP2350 mutex waits keep
+#     spinning as with SDK 2.2 instead of sleeping in __wfe; this only affects
+#     power use, and the workaround's RAM code costs 28 (Arm) / 72 (RISC-V) bytes.
+target_compile_definitions(pico_lutionx PRIVATE
+    PICO_THREAD_LOCAL_CORE1_REINITIALIZE=0
+    PICO_SYNC_EXCLUSIVE_ACCESS_EVENT_WORKAROUND=0
+)
+
+# Pico SDK 2.3 brings its own __cxa_guard_acquire, the function that guards the
+# first use of a C++ function-local static. With pico_multicore linked it claims
+# the guard with an atomic compare-and-swap (LDREX/STREX). The linker script puts
+# the engine's .bss, guard variables included, in PSRAM, where exclusive
+# accesses are not supported: the store lands, the STREX reports failure, and
+# the core then waits forever for "another" initializer (seen in devilutionX's
+# GetIni(), which hung right after USB start-up). With this option the SDK
+# checks the guard with plain loads and stores, as libstdc++ did with SDK 2.2.
+# C++ code only runs on core 0 here (core 1 runs the C display loop). Unknown
+# to, and ignored by, older SDKs.
+target_compile_definitions(pico_lutionx PRIVATE
+    PICO_CXX_THREAD_SAFE_STATIC_INIT=0
+)
+
 pico_set_program_name(pico_lutionx "pico-lutionX")
 pico_set_program_version(pico_lutionx "${DX_RELEASE_VERSION}")
 
