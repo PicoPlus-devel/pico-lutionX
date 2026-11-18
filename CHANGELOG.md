@@ -5,6 +5,12 @@ around the Raspberry Pi RP2350 microcontroller. The picture goes out over HDMI, 
 data is read from an SD card, and the game is played with a USB keyboard and mouse or a
 gamepad.
 
+## Next release
+
+### Changed
+
+- Built with Pico SDK 2.3.1.
+
 ## v0.3-alpha
 
 ### Added

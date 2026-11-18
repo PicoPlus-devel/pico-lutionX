@@ -245,8 +245,8 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
     line state itself, after switching them back on;
   - while a device is attached, it drains the lines for 5 µs every 16 frames, so that an
     unplug reads as SE0.
-- **SDK and TinyUSB version:** the port is built with pico-sdk 2.2.0 and the TinyUSB it
-  carries (0.18.0, commit 86ad6e56). A hub with a keyboard and mouse on the native
+- **SDK and TinyUSB version:** the port builds with pico-sdk 2.2.0 and 2.3.1 and the
+  TinyUSB they carry (0.18.0; commit 86ad6e56 in 2.2.0). A hub with a keyboard and mouse on the native
   controller was reliable with TinyUSB master of 2025-08-07 (5fb3c0996), whose driver for
   the native controller is that of 0.18.0 (it also resets EPX when a device is unplugged
   during a transfer); its host stack and hub driver are newer. With master of May 2026,
@@ -256,8 +256,9 @@ The engine's sound code is unchanged; it uses the SDL_audiolib subset in `src/au
   `dx_usb.cpp` warns at build time when TinyUSB is newer than 0.18.0 on a board with the
   native controller. The vendored XInput driver builds with either version (`open()`
   returns `bool` before TinyUSB commit ef018e364, the descriptor length after it).
-  pico-sdk 2.3.1 does not configure: it splits `memmap_default.ld` into included files,
-  which `cmake/psram_linker.cmake` does not handle yet.
+  pico-sdk 2.3 splits `memmap_default.ld` into included files; `cmake/psram_linker.cmake`
+  then applies its patches to the included files it touches and passes the patched copies
+  to the linker ahead of the SDK's.
 - **USB log:** `-DDX_USB_LOG=ON` (for example
   `BUILD=build_usblog ./adafruitdvisd-build.sh -DDX_USB_LOG=ON`) builds TinyUSB with its
   host log (`CFG_TUSB_DEBUG` 2) on the UART: enumeration, hub ports and every transfer.
