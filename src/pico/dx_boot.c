@@ -34,6 +34,11 @@
 #include "dx_input.h"
 #include "dx_platform.h"
 
+// pico-bootLoader leaves this application out of its menu on a board without
+// PSRAM. It does not make it take part in attract mode ("attract:" does that).
+#include "pico/binary_info.h"
+bi_decl(bi_program_feature("requires:psram"));
+
 /*
 ==============================================================================
 
