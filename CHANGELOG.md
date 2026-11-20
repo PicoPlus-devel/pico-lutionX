@@ -10,6 +10,7 @@ gamepad.
 ### Changed
 
 - Built with Pico SDK 2.3.1.
+- pico-bootLoader no longer lists the game in its menu on a board without PSRAM.
 
 ## v0.3-alpha
 
