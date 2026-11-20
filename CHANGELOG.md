@@ -5,7 +5,12 @@ around the Raspberry Pi RP2350 microcontroller. The picture goes out over HDMI, 
 data is read from an SD card, and the game is played with a USB keyboard and mouse or a
 gamepad.
 
-## Next release
+## v0.3-alpha_bl
+
+This version is built for
+[pico-bootLoader](https://github.com/PicoPlus-devel/pico-bootLoader) only, and is
+included in its SD-card archive. It has no release of its own: without pico-bootLoader,
+keep using v0.3-alpha.
 
 ### Changed
 
